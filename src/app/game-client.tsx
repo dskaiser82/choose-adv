@@ -36,7 +36,7 @@ type GameClientProps = {
 const STORAGE_KEY = "choose-adventure-mvp-state";
 const DEFAULT_REVEAL_SPEED = 1500;
 const HOLD_TIME_MS = 1100;
-const CLEAR_TIME_MS = 350;
+const CLEAR_TIME_MS = 450;
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   return {
@@ -91,7 +91,6 @@ export default function GameClient({
   const [cardIndex, setCardIndex] = useState(0);
   const [displayedCardText, setDisplayedCardText] = useState("");
   const [isCardVisible, setIsCardVisible] = useState(false);
-  const [isTypingCard, setIsTypingCard] = useState(false);
   const [storyModeDone, setStoryModeDone] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
@@ -158,7 +157,6 @@ export default function GameClient({
     if (!storyCards.length) return;
     if (cardIndex >= storyCards.length) {
       setStoryModeDone(true);
-      setIsTypingCard(false);
       setIsCardVisible(false);
       return;
     }
@@ -166,37 +164,20 @@ export default function GameClient({
     runIdRef.current += 1;
     const runId = runIdRef.current;
     const currentCard = storyCards[cardIndex];
-    const charDelay = Math.max(14, Math.round(24 * (revealSpeed / DEFAULT_REVEAL_SPEED)));
 
-    setDisplayedCardText("");
+    setDisplayedCardText(currentCard);
     setIsCardVisible(true);
-    setIsTypingCard(true);
     setStoryModeDone(false);
 
-    let index = 0;
-
-    function typeNext() {
+    timerRef.current = setTimeout(() => {
       if (runId !== runIdRef.current) return;
-      index += 1;
-      setDisplayedCardText(currentCard.slice(0, index));
-      if (index < currentCard.length) {
-        timerRef.current = setTimeout(typeNext, charDelay);
-        return;
-      }
-
-      setIsTypingCard(false);
+      setIsCardVisible(false);
       timerRef.current = setTimeout(() => {
         if (runId !== runIdRef.current) return;
-        setIsCardVisible(false);
-        timerRef.current = setTimeout(() => {
-          if (runId !== runIdRef.current) return;
-          setDisplayedCardText("");
-          setCardIndex((prev) => prev + 1);
-        }, CLEAR_TIME_MS);
-      }, revealSpeed + HOLD_TIME_MS);
-    }
-
-    timerRef.current = setTimeout(typeNext, charDelay);
+        setDisplayedCardText("");
+        setCardIndex((prev) => prev + 1);
+      }, CLEAR_TIME_MS);
+    }, revealSpeed + HOLD_TIME_MS);
 
     return () => {
       if (timerRef.current) {
@@ -226,7 +207,6 @@ export default function GameClient({
     setCardIndex(0);
     setDisplayedCardText("");
     setIsCardVisible(false);
-    setIsTypingCard(false);
     setStoryModeDone(false);
   }
 
@@ -276,6 +256,7 @@ export default function GameClient({
       const decoder = new TextDecoder();
       let buffer = "";
       let finalTurn: TurnResponse | null = null;
+      let fullNarration = "";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -284,8 +265,6 @@ export default function GameClient({
       }
 
       const events = buffer.split("\n\n").filter(Boolean);
-      let fullNarration = "";
-
       for (const rawEvent of events) {
         const lines = rawEvent.split("\n");
         const eventLine = lines.find((line) => line.startsWith("event: "));
@@ -294,9 +273,7 @@ export default function GameClient({
         const eventName = eventLine.slice(7).trim();
         const payload = JSON.parse(dataLine.slice(6));
 
-        if (eventName === "meta") {
-          // Metadata is available in the final turn payload if we need it later.
-        } else if (eventName === "chunk") {
+        if (eventName === "chunk") {
           fullNarration += String(payload.text ?? "");
         } else if (eventName === "done") {
           finalTurn = payload as TurnResponse;
@@ -500,10 +477,9 @@ export default function GameClient({
             <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
               {displayedCardText ? (
                 <p
-                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-opacity duration-200 md:text-5xl ${isCardVisible ? "opacity-100" : "opacity-0"}`}
+                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-all duration-700 md:text-5xl ${isCardVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
                 >
                   {displayedCardText}
-                  {isTypingCard ? <span className="animate-pulse">▌</span> : null}
                 </p>
               ) : loading ? (
                 <div className="flex items-center gap-3 text-white/60">
