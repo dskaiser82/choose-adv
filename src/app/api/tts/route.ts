@@ -20,7 +20,7 @@ async function synthesizeNarration(text: string) {
 
   try {
     const client = new ElevenLabsClient({ apiKey });
-    const audioStream = await client.textToSpeech.convert("21m00Tcm4TlvDq8ikWAM", {
+    const audioStream = await client.textToSpeech.convert("DGhxgogT0bhXlRToPzFs", {
       text,
       modelId: "eleven_multilingual_v2",
       outputFormat: "mp3_44100_128",
