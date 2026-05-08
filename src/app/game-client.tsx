@@ -555,22 +555,6 @@ export default function GameClient({
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
               Phone card target: ~{phoneCardWordLimit} words
             </span>
-            <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-amber-100/80">
-              TTS debug: {turn.ttsDebug?.stage ?? "not-run"} · key {turn.ttsDebug?.hasApiKey ? `${turn.ttsDebug?.apiKeyPrefix ?? "????"}…` : "no"}
-            </span>
-            {typeof turn.ttsDebug?.byteLength === "number" && turn.ttsDebug.byteLength > 0 ? (
-              <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-amber-100/80">
-                TTS bytes: {turn.ttsDebug.byteLength}
-              </span>
-            ) : null}
-            <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-sky-100/85">
-              Audio: {audioPlaybackState}
-            </span>
-            {audioElementDebug ? (
-              <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-sky-100/85">
-                rs {audioElementDebug.readyState} · ns {audioElementDebug.networkState} · paused {audioElementDebug.paused ? "yes" : "no"}
-              </span>
-            ) : null}
           </div>
 
           <div className="mt-6">
@@ -625,10 +609,6 @@ export default function GameClient({
 
           {error ? <p className="text-sm text-rose-300">{error}</p> : null}
           {!hydrated ? <p className="text-sm text-emerald-200/60">Restoring saved browser session...</p> : null}
-          {turn.ttsDebug?.error ? (
-            <p className="text-sm text-amber-300">TTS error: {turn.ttsDebug.error}</p>
-          ) : null}
-          {audioStatusMessage ? <p className="text-sm text-sky-200">Audio status: {audioStatusMessage}</p> : null}
 
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -654,29 +634,9 @@ export default function GameClient({
           </div>
         </form>
 
-        {history.length > 0 ? (
-          <div className="mt-6 rounded-2xl border border-emerald-200/10 bg-black/20 p-5">
-            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Recent session history</p>
-            <div className="mt-4 space-y-4">
-              {history.slice().reverse().map((entry) => (
-                <article
-                  key={`${entry.createdAt}-${entry.action}`}
-                  className="rounded-2xl border border-emerald-200/10 bg-emerald-50/5 p-4"
-                >
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/55">Your action</p>
-                  <p className="mt-2 text-sm leading-7 text-emerald-50">{entry.action}</p>
-                  <p className="mt-4 text-[11px] uppercase tracking-[0.18em] text-emerald-200/55">Narrator response</p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-emerald-100/90">
-                    {entry.response.narration}
-                  </p>
-                </article>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div className="mt-4 max-w-xl rounded-2xl border border-sky-300/20 bg-sky-200/5 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-sky-200/75">Narration audio</p>
+          {audioStatusMessage ? <p className="mt-2 text-sm text-sky-100/80">{audioStatusMessage}</p> : null}
           <audio
             ref={audioRef}
             controls
