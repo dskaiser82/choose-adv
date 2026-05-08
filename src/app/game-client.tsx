@@ -8,7 +8,7 @@ type TurnResponse = {
   suggestedChoices: string[];
   usedTts: boolean;
   audioUrl?: string;
-  ttsMode: "piper" | "browser" | "none";
+  ttsMode: "elevenlabs" | "none";
 };
 
 type TurnHistoryEntry = {
@@ -225,16 +225,6 @@ export default function GameClient({
     };
   }, [showOverlay, storyCards, cardIndex]);
 
-  async function speakWithBrowser(text: string) {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 0.9;
-    window.speechSynthesis.speak(utterance);
-    return true;
-  }
-
   function resetStoryMode() {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -257,7 +247,6 @@ export default function GameClient({
     resetStoryMode();
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
-      window.speechSynthesis?.cancel();
     }
   }
 
@@ -372,8 +361,6 @@ export default function GameClient({
       if (finalTurn.audioUrl && audioRef.current) {
         audioRef.current.src = finalTurn.audioUrl;
         await audioRef.current.play().catch(() => undefined);
-      } else {
-        await speakWithBrowser(finalTurn.narration);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -394,8 +381,8 @@ export default function GameClient({
             <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/70">Playable MVP</p>
             <h2 className="mt-2 text-3xl font-semibold text-emerald-50">Narrator Loop Test</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-emerald-100/75">
-              Freeform input in, narrated response out. If Piper is installed on the host, the site can use it. If not,
-              it falls back to browser speech.
+              Freeform input in, narrated response out. If ElevenLabs is configured, playback uses it. Otherwise, the
+              user just reads the story cards manually.
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 md:items-end">
@@ -445,13 +432,6 @@ export default function GameClient({
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
               Phone card target: ~{phoneCardWordLimit} words
             </span>
-            <button
-              type="button"
-              onClick={() => speakWithBrowser(turn.narration)}
-              className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100 transition hover:bg-emerald-200/15"
-            >
-              Read aloud
-            </button>
           </div>
 
           <div className="mt-6">

@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import { toAsyncIterable } from "@elevenlabs/elevenlabs-js/wrapper/utils";
 
 function buildTurn({
   playerName,
@@ -44,46 +45,40 @@ function buildTurn({
   };
 }
 
-async function tryPiperTts(text: string) {
-  const piperDir = "/home/gobotmini/.openclaw/workspace/tools/piper";
-  const voiceDir = path.join(piperDir, "voices");
-  const modelPath = path.join(voiceDir, "en_US-lessac-medium.onnx");
-  const binaryPath = path.join(piperDir, "piper");
+async function saveAudioFromBuffer(buffer: Buffer, extension = "mp3") {
+  const outputDir = path.join(process.cwd(), "public", "generated-audio");
+  await fs.mkdir(outputDir, { recursive: true });
+  const fileName = `turn-${Date.now()}.${extension}`;
+  const outputFile = path.join(outputDir, fileName);
+  await fs.writeFile(outputFile, buffer);
+  return `/generated-audio/${fileName}`;
+}
 
-  try {
-    await fs.access(binaryPath);
-    await fs.access(modelPath);
-  } catch {
+async function tryElevenLabsTts(text: string) {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) {
     return null;
   }
 
-  const outputDir = path.join(process.cwd(), "public", "generated-audio");
-  await fs.mkdir(outputDir, { recursive: true });
-  const fileName = `turn-${Date.now()}.wav`;
-  const outputFile = path.join(outputDir, fileName);
-
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(binaryPath, ["--model", modelPath, "--output_file", outputFile], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(stderr || `Piper exited with code ${code}`));
-    });
-
-    child.stdin.write(text);
-    child.stdin.end();
+  const client = new ElevenLabsClient({ apiKey });
+  const audioStream = await client.textToSpeech.convert("21m00Tcm4TlvDq8ikWAM", {
+    text,
+    modelId: "eleven_multilingual_v2",
+    outputFormat: "mp3_44100_128",
   });
 
-  return `/generated-audio/${fileName}`;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of toAsyncIterable(audioStream)) {
+    chunks.push(chunk);
+  }
+
+  if (!chunks.length) {
+    return null;
+  }
+
+  return saveAudioFromBuffer(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), "mp3");
 }
+
 
 function encodeEvent(event: string, data: unknown) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -128,15 +123,15 @@ export async function POST(req: Request) {
       }
 
       let audioUrl: string | undefined;
-      let ttsMode: "piper" | "browser" | "none" = "browser";
+      let ttsMode: "elevenlabs" | "none" = "none";
 
       try {
-        audioUrl = (await tryPiperTts(turn.narration)) ?? undefined;
+        audioUrl = (await tryElevenLabsTts(turn.narration)) ?? undefined;
         if (audioUrl) {
-          ttsMode = "piper";
+          ttsMode = "elevenlabs";
         }
       } catch {
-        ttsMode = "browser";
+        ttsMode = "none";
       }
 
       controller.enqueue(
