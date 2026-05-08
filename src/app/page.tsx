@@ -1,35 +1,41 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-type PlayerState = {
-  name: string;
-  health: number;
-  status: string;
-  inventory: string[];
-  flags: Record<string, boolean>;
-  activeObjectives: string[];
+type CharactersState = {
+  player: {
+    name: string;
+    aliases?: string[];
+    status: string;
+    origin?: {
+      kingdom?: string;
+      region?: string;
+    };
+    background?: {
+      former_affiliation?: string;
+      role?: string;
+      years_of_service?: number;
+      specializations?: string[];
+    };
+  };
 };
 
 type WorldState = {
-  currentScene: {
-    id: string;
-    title: string;
-    summary: string;
-    choices: string[];
+  world: {
+    name: string;
+    tone?: string;
+    technology_level?: string;
   };
-  location: string;
-  timeOfDay: string;
-  weather: string;
-  worldFlags: Record<string, boolean>;
-  npcs: Record<string, { mood: string; trust: number }>;
-  unlockedLocations: string[];
+  major_powers?: string[];
+  regions?: string[];
+  locations?: string[];
 };
 
-type LogEntry = {
-  id: number;
-  type: string;
-  text: string;
-  timestamp: string;
+type LogState = {
+  events?: Array<{
+    id: number;
+    type: string;
+    details: string;
+  }>;
 };
 
 async function readStateFile<T>(fileName: string): Promise<T> {
@@ -43,13 +49,24 @@ async function readSummary(): Promise<string> {
   return fs.readFile(filePath, "utf8");
 }
 
+function markdownToParagraphs(markdown: string): string[] {
+  return markdown
+    .split(/\n\s*\n/)
+    .map((block) => block.replace(/^#+\s*/gm, "").trim())
+    .filter(Boolean);
+}
+
 export default async function Home() {
-  const [player, world, log, summary] = await Promise.all([
-    readStateFile<PlayerState>("characters.json"),
+  const [characters, world, log, summary] = await Promise.all([
+    readStateFile<CharactersState>("characters.json"),
     readStateFile<WorldState>("world.json"),
-    readStateFile<LogEntry[]>("log.json"),
+    readStateFile<LogState>("log.json"),
     readSummary(),
   ]);
+
+  const player = characters.player;
+  const summaryBlocks = markdownToParagraphs(summary);
+  const events = log.events ?? [];
 
   return (
     <main className="min-h-screen bg-[#120d0a] bg-[radial-gradient(circle_at_top,_rgba(255,180,80,0.12),_transparent_35%),linear-gradient(180deg,_#1b140f_0%,_#120d0a_100%)] px-4 py-6 text-[#f5e7c8] md:px-8 md:py-8">
@@ -59,11 +76,11 @@ export default async function Home() {
           <div className="relative">
             <p className="text-xs uppercase tracking-[0.4em] text-amber-300/80">Choose Adventure</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-[0.08em] text-amber-50 md:text-5xl">
-              Retro Story Console
+              {world.world.name} Campaign Console
             </h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-amber-100/80 md:text-base">
-              A moody single-page logbook for your voice-driven adventure sessions. The homepage is meant to feel like a
-              mix of old terminal, worn fantasy handbook, and glowing tavern notice board.
+              A living campaign brief for {player.name}, with world notes, character background, and the latest canonical
+              state files driving the public adventure view.
             </p>
           </div>
         </header>
@@ -73,33 +90,28 @@ export default async function Home() {
             <div className="rounded-[28px] border border-amber-300/20 bg-black/25 p-5 shadow-[inset_0_1px_0_rgba(255,220,160,0.06)] backdrop-blur-sm md:p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-amber-300/70">Current Scene</p>
-                  <h2 className="mt-2 text-3xl font-semibold text-amber-50">{world.currentScene.title}</h2>
+                  <p className="text-xs uppercase tracking-[0.3em] text-amber-300/70">Campaign summary</p>
+                  <h2 className="mt-2 text-3xl font-semibold text-amber-50">{player.name} of {player.origin?.kingdom ?? "Unknown Kingdom"}</h2>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-amber-100/80">
-                  <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5">{world.location}</span>
-                  <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5">{world.timeOfDay}</span>
-                  <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5">{world.weather}</span>
+                  {player.status ? (
+                    <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5">{player.status}</span>
+                  ) : null}
+                  {player.origin?.region ? (
+                    <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5">{player.origin.region}</span>
+                  ) : null}
+                  {world.world.tone ? (
+                    <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5">{world.world.tone}</span>
+                  ) : null}
                 </div>
               </div>
 
-              <div className="mt-5 rounded-2xl border border-amber-200/10 bg-[linear-gradient(180deg,rgba(255,248,220,0.05),rgba(255,248,220,0.02))] p-5">
-                <p className="text-lg leading-8 text-amber-50/95">{world.currentScene.summary}</p>
-              </div>
-
-              <div className="mt-6">
-                <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">Available choices</h3>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {world.currentScene.choices.map((choice, index) => (
-                    <div
-                      key={choice}
-                      className="rounded-2xl border border-amber-300/20 bg-[linear-gradient(180deg,rgba(255,210,120,0.12),rgba(255,210,120,0.04))] px-4 py-3 text-sm text-amber-50 shadow-[inset_0_1px_0_rgba(255,240,200,0.08)]"
-                    >
-                      <span className="mr-2 text-amber-300/80">0{index + 1}.</span>
-                      {choice}
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-5 space-y-4 rounded-2xl border border-amber-200/10 bg-[linear-gradient(180deg,rgba(255,248,220,0.05),rgba(255,248,220,0.02))] p-5">
+                {summaryBlocks.map((block, index) => (
+                  <p key={index} className="text-base leading-8 text-amber-50/95 md:text-lg">
+                    {block}
+                  </p>
+                ))}
               </div>
             </div>
 
@@ -107,27 +119,27 @@ export default async function Home() {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">Adventure log</h3>
                 <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-amber-100/70">
-                  {log.length} entries
+                  {events.length} entries
                 </span>
               </div>
               <div className="mt-4 space-y-3">
-                {log.map((entry) => (
+                {events.map((entry) => (
                   <article
                     key={entry.id}
                     className="rounded-2xl border border-amber-200/10 bg-[linear-gradient(180deg,rgba(255,248,220,0.05),rgba(255,248,220,0.015))] p-4"
                   >
                     <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.22em] text-amber-200/55">
-                      <span>{entry.type}</span>
-                      <span>{entry.timestamp}</span>
+                      <span>{entry.type.replaceAll("_", " ")}</span>
+                      <span>Event {entry.id}</span>
                     </div>
-                    <p className="mt-3 text-sm leading-7 text-amber-50/90">{entry.text}</p>
+                    <p className="mt-3 text-sm leading-7 text-amber-50/90">{entry.details}</p>
                   </article>
                 ))}
               </div>
             </div>
 
             <div className="rounded-[28px] border border-amber-300/20 bg-black/25 p-5 shadow-[inset_0_1px_0_rgba(255,220,160,0.06)] md:p-6">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">Summary markdown</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">Raw summary markdown</h3>
               <pre className="mt-4 overflow-x-auto rounded-2xl border border-amber-200/10 bg-[#0d0a08] p-4 text-sm leading-7 whitespace-pre-wrap text-amber-100/85">
                 {summary}
               </pre>
@@ -136,75 +148,99 @@ export default async function Home() {
 
           <aside className="space-y-6">
             <div className="rounded-[28px] border border-amber-300/20 bg-black/25 p-5 shadow-[inset_0_1px_0_rgba(255,220,160,0.06)] md:p-6">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">Player state</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">Character profile</h3>
               <div className="mt-4 grid gap-3">
                 <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Name</p>
                   <p className="mt-1 text-lg font-medium text-amber-50">{player.name}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+
+                {player.background?.role ? (
                   <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Health</p>
-                    <p className="mt-1 text-lg font-medium text-amber-50">{player.health}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Role</p>
+                    <p className="mt-1 text-lg font-medium text-amber-50">{player.background.role}</p>
                   </div>
-                  <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Status</p>
-                    <p className="mt-1 text-lg font-medium text-amber-50 capitalize">{player.status}</p>
-                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-1 gap-3">
+                  {player.background?.former_affiliation ? (
+                    <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Former affiliation</p>
+                      <p className="mt-1 text-amber-50">{player.background.former_affiliation}</p>
+                    </div>
+                  ) : null}
+
+                  {typeof player.background?.years_of_service === "number" ? (
+                    <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Years of service</p>
+                      <p className="mt-1 text-amber-50">{player.background.years_of_service}</p>
+                    </div>
+                  ) : null}
                 </div>
 
-                <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Inventory</p>
-                  <ul className="mt-3 space-y-2 text-sm text-amber-50/90">
-                    {player.inventory.map((item) => (
-                      <li key={item} className="rounded-xl bg-black/20 px-3 py-2">
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Objectives</p>
-                  <ul className="mt-3 space-y-2 text-sm text-amber-50/90">
-                    {player.activeObjectives.map((objective) => (
-                      <li key={objective} className="rounded-xl bg-black/20 px-3 py-2">
-                        {objective}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                {player.background?.specializations?.length ? (
+                  <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Specializations</p>
+                    <ul className="mt-3 space-y-2 text-sm text-amber-50/90">
+                      {player.background.specializations.map((item) => (
+                        <li key={item} className="rounded-xl bg-black/20 px-3 py-2">
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             </div>
 
             <div className="rounded-[28px] border border-amber-300/20 bg-black/25 p-5 shadow-[inset_0_1px_0_rgba(255,220,160,0.06)] md:p-6">
               <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-300/70">World state</h3>
               <div className="mt-4 space-y-4 text-sm text-amber-50/90">
+                {world.world.technology_level ? (
+                  <div className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Technology level</p>
+                    <p className="mt-2 leading-7">{world.world.technology_level}</p>
+                  </div>
+                ) : null}
+
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Unlocked locations</p>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Major powers</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {world.unlockedLocations.map((location) => (
+                    {(world.major_powers ?? []).map((power) => (
                       <span
-                        key={location}
+                        key={power}
                         className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-xs uppercase tracking-[0.12em]"
                       >
-                        {location}
+                        {power}
                       </span>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">NPC status</p>
-                  <div className="mt-3 space-y-2">
-                    {Object.entries(world.npcs).map(([name, npc]) => (
-                      <div key={name} className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-medium capitalize text-amber-50">{name}</p>
-                          <p className="text-xs uppercase tracking-[0.14em] text-amber-200/55">Trust {npc.trust}</p>
-                        </div>
-                        <p className="mt-2 text-sm capitalize text-amber-100/80">Mood: {npc.mood}</p>
-                      </div>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Regions</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(world.regions ?? []).map((region) => (
+                      <span
+                        key={region}
+                        className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-xs uppercase tracking-[0.12em]"
+                      >
+                        {region}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Locations</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(world.locations ?? []).map((location) => (
+                      <span
+                        key={location}
+                        className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-xs uppercase tracking-[0.12em]"
+                      >
+                        {location}
+                      </span>
                     ))}
                   </div>
                 </div>

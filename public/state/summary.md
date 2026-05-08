@@ -1,11 +1,7 @@
-# Current Summary
+# Veyr Campaign Summary
 
-You have just arrived in the village square at dusk.
+Cade is a former Black Veil Corps reconnaissance operative operating in the Grey Marches frontier region of Veyr.
 
-## What happened
-- The village well has mysteriously run dry.
-- People are nervous and rumors of bandits are spreading.
-- The innkeeper seems to know more than he is saying.
+He possesses an ancient shadow brace bound to his dominant shooting arm. The brace grants dangerous shadow-based abilities at escalating physical cost.
 
-## Current objective
-Figure out what happened to the well and decide who to trust first.
+The world of Veyr is a dark political fantasy setting defined by fractured kingdoms, frontier warfare, dangerous wilderness, ancient ruins, and hidden horrors beyond civilization.

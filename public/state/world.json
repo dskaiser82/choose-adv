@@ -1,30 +1,18 @@
 {
-  "currentScene": {
-    "id": "village-square",
-    "title": "Village Square",
-    "summary": "Lanterns flicker as villagers whisper about the dry well.",
-    "choices": [
-      "Talk to the innkeeper",
-      "Inspect the well",
-      "Ask the mayor for details"
-    ]
+  "world": {
+    "name": "Veyr",
+    "tone": "Dark political fantasy",
+    "technology_level": "Advanced medieval / early renaissance without firearms"
   },
-  "location": "Village Square",
-  "timeOfDay": "dusk",
-  "weather": "windy",
-  "worldFlags": {
-    "wellDry": true,
-    "banditsSeen": true
-  },
-  "npcs": {
-    "innkeeper": {
-      "mood": "guarded",
-      "trust": 0
-    },
-    "mayor": {
-      "mood": "anxious",
-      "trust": 1
-    }
-  },
-  "unlockedLocations": ["village-square", "crooked-inn", "dry-well"]
+  "major_powers": [
+    "Avaren",
+    "Velkan Marches",
+    "The Free Coast"
+  ],
+  "regions": [
+    "The Grey Marches"
+  ],
+  "locations": [
+    "Blackmere"
+  ]
 }

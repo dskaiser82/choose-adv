@@ -1,8 +1,9 @@
-[
-  {
-    "id": 1,
-    "type": "setup",
-    "text": "You arrived in a village at dusk and learned the well has gone dry.",
-    "timestamp": "session-start"
-  }
-]
+{
+  "events": [
+    {
+      "id": 1,
+      "type": "world_creation",
+      "details": "The world of Veyr and the character Cade were established."
+    }
+  ]
+}
