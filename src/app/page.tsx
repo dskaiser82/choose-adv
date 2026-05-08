@@ -58,13 +58,16 @@ function markdownToParagraphs(markdown: string): string[] {
 }
 
 export default async function Home() {
-  const [characters, world, log, summary] = await Promise.all([
+  const [characters, world, log, summary, packageRaw] = await Promise.all([
     readStateFile<CharactersState>("characters.json"),
     readStateFile<WorldState>("world.json"),
     readStateFile<LogState>("log.json"),
     readSummary(),
+    fs.readFile(path.join(process.cwd(), "package.json"), "utf8"),
   ]);
 
+  const pkg = JSON.parse(packageRaw) as { version?: string };
+  const releaseVersion = pkg.version ?? "0.1.0";
   const player = characters.player;
   const summaryBlocks = markdownToParagraphs(summary);
   const events = log.events ?? [];
@@ -75,7 +78,12 @@ export default async function Home() {
         <header className="relative overflow-hidden rounded-[28px] border border-amber-300/20 bg-[linear-gradient(180deg,rgba(55,36,23,0.92),rgba(24,16,11,0.96))] p-6 shadow-[0_0_0_1px_rgba(255,220,160,0.04),0_30px_80px_rgba(0,0,0,0.45)] md:p-8">
           <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(255,220,170,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,220,170,0.08)_1px,transparent_1px)] [background-size:22px_22px]" />
           <div className="relative">
-            <p className="text-xs uppercase tracking-[0.4em] text-amber-300/80">Choose Adventure</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.4em] text-amber-300/80">Choose Adventure</p>
+              <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-sky-100/85">
+                Release {releaseVersion}
+              </span>
+            </div>
             <h1 className="mt-3 text-4xl font-semibold tracking-[0.08em] text-amber-50 md:text-5xl">
               {world.world.name} Campaign Console
             </h1>
@@ -92,6 +100,7 @@ export default async function Home() {
           playerRegion={player.origin?.region}
           playerRole={player.background?.role}
           summaryText={summary}
+          releaseVersion={releaseVersion}
         />
 
         <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">

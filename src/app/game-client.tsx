@@ -29,6 +29,7 @@ type GameClientProps = {
   playerRegion?: string;
   playerRole?: string;
   summaryText: string;
+  releaseVersion: string;
 };
 
 type StreamingMeta = {
@@ -60,6 +61,7 @@ export default function GameClient({
   playerRegion,
   playerRole,
   summaryText,
+  releaseVersion,
 }: GameClientProps) {
   const initialTurn = useMemo(() => buildInitialTurn(worldName, playerName), [worldName, playerName]);
   const [action, setAction] = useState("");
@@ -72,6 +74,7 @@ export default function GameClient({
   const [streamedNarration, setStreamedNarration] = useState("");
   const [streamedMeta, setStreamedMeta] = useState<StreamingMeta | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationBoxRef = useRef<HTMLDivElement | null>(null);
 
   const context = useMemo(() => {
     return [
@@ -113,6 +116,11 @@ export default function GameClient({
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [action, turn, history, hydrated]);
+
+  useEffect(() => {
+    if (!streaming || !narrationBoxRef.current) return;
+    narrationBoxRef.current.scrollTo({ top: narrationBoxRef.current.scrollHeight, behavior: "smooth" });
+  }, [streamedNarration, streaming]);
 
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
@@ -243,6 +251,9 @@ export default function GameClient({
             {context}
           </div>
           <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-sky-100/85">
+              Release {releaseVersion}
+            </span>
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
               Saved turns: {history.length}
             </span>
@@ -258,9 +269,27 @@ export default function GameClient({
       </div>
 
       <div className="mt-5 rounded-2xl border border-emerald-200/10 bg-black/25 p-5">
-        <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Current narration</p>
-        <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{activeTitle}</h3>
-        <p className="mt-4 whitespace-pre-wrap text-base leading-8 text-emerald-50/95">{activeNarration}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Current narration</p>
+            <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{activeTitle}</h3>
+          </div>
+          {streaming ? (
+            <div className="mt-1 flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-50">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+              Live
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          ref={narrationBoxRef}
+          className="mt-4 min-h-[260px] max-h-[52vh] overflow-y-auto rounded-2xl border border-emerald-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] p-4 md:min-h-[320px]"
+        >
+          <p className={`whitespace-pre-wrap text-base leading-8 text-emerald-50/95 transition-opacity duration-300 ${streaming ? "opacity-95" : "opacity-100"}`}>
+            {activeNarration}
+          </p>
+        </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
           <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
@@ -269,11 +298,6 @@ export default function GameClient({
           <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
             Persistence: local browser storage
           </span>
-          {streaming ? (
-            <span className="rounded-full border border-emerald-300/20 bg-emerald-300/15 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-50">
-              Streaming live
-            </span>
-          ) : null}
           <button
             type="button"
             onClick={() => speakWithBrowser(turn.narration)}
