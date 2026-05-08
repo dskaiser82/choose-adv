@@ -1,6 +1,3 @@
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
-import { toAsyncIterable } from "@elevenlabs/elevenlabs-js/wrapper/utils";
-
 function buildTurn({
   playerName,
   worldName,
@@ -43,78 +40,10 @@ function buildTurn({
   };
 }
 
-async function buildAudioDataUrl(buffer: Buffer, mimeType = "audio/mpeg") {
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
-}
-
-async function tryElevenLabsTts(text: string) {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    return {
-      audioUrl: null,
-      debug: {
-        hasApiKey: false,
-        apiKeyPrefix: null,
-        stage: "missing-api-key",
-      },
-    };
-  }
-
-  try {
-    const client = new ElevenLabsClient({ apiKey });
-    const audioStream = await client.textToSpeech.convert("21m00Tcm4TlvDq8ikWAM", {
-      text,
-      modelId: "eleven_multilingual_v2",
-      outputFormat: "mp3_44100_128",
-    });
-
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of toAsyncIterable(audioStream)) {
-      chunks.push(chunk);
-    }
-
-    if (!chunks.length) {
-      return {
-        audioUrl: null,
-        debug: {
-          hasApiKey: true,
-          apiKeyPrefix: apiKey.slice(0, 4),
-          stage: "empty-audio-stream",
-          chunkCount: 0,
-        },
-      };
-    }
-
-    const audioBase64Url = await buildAudioDataUrl(
-      Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))),
-      "audio/mpeg",
-    );
-    return {
-      audioUrl: audioBase64Url,
-      debug: {
-        hasApiKey: true,
-        apiKeyPrefix: apiKey.slice(0, 4),
-        stage: "audio-generated",
-        chunkCount: chunks.length,
-        audioUrlPreview: audioBase64Url.slice(0, 32),
-      },
-    };
-  } catch (error) {
-    return {
-      audioUrl: null,
-      debug: {
-        hasApiKey: true,
-        apiKeyPrefix: apiKey.slice(0, 4),
-        stage: "elevenlabs-error",
-        error: error instanceof Error ? error.message : String(error),
-      },
-    };
-  }
-}
-
-
 function encodeEvent(event: string, data: unknown) {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const json = JSON.stringify(data);
+  const dataLines = json.split("\n").map((line) => `data: ${line}`).join("\n");
+  return `event: ${event}\n${dataLines}\n\n`;
 }
 
 export async function POST(req: Request) {
@@ -155,24 +84,12 @@ export async function POST(req: Request) {
         await new Promise((resolve) => setTimeout(resolve, 180));
       }
 
-      let audioUrl: string | undefined;
-      let ttsMode: "elevenlabs" | "none" = "none";
-      const ttsResult = await tryElevenLabsTts(turn.narration);
-      audioUrl = ttsResult.audioUrl ?? undefined;
-      if (audioUrl) {
-        ttsMode = "elevenlabs";
-      }
-
       controller.enqueue(
         new TextEncoder().encode(
           encodeEvent("done", {
             narration: turn.narration,
             sceneTitle: turn.sceneTitle,
             suggestedChoices: turn.suggestedChoices,
-            usedTts: Boolean(audioUrl),
-            audioUrl,
-            ttsMode,
-            ttsDebug: ttsResult.debug,
           }),
         ),
       );

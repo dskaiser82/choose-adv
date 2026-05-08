@@ -14,8 +14,7 @@ type TurnResponse = {
     apiKeyPrefix?: string | null;
     stage?: string;
     chunkCount?: number;
-    audioUrl?: string | null;
-    audioUrlPreview?: string;
+    byteLength?: number;
     error?: string;
   };
 };
@@ -361,14 +360,60 @@ export default function GameClient({
         throw new Error("Stream completed without final turn data.");
       }
 
+      const ttsResponse = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: fullNarration || finalTurn.narration }),
+      });
+
+      let playbackTurn: TurnResponse = {
+        ...finalTurn,
+        usedTts: false,
+        ttsMode: "none",
+        ttsDebug: {
+          stage: "tts-not-requested",
+        },
+      };
+
+      if (ttsResponse.ok) {
+        const audioBlob = await ttsResponse.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        playbackTurn = {
+          ...finalTurn,
+          usedTts: true,
+          audioUrl,
+          ttsMode: "elevenlabs",
+          ttsDebug: {
+            hasApiKey: ttsResponse.headers.get("x-tts-key-prefix") !== null,
+            apiKeyPrefix: ttsResponse.headers.get("x-tts-key-prefix"),
+            stage: ttsResponse.headers.get("x-tts-stage") ?? "audio-generated",
+            chunkCount: Number(ttsResponse.headers.get("x-tts-chunk-count") ?? "0"),
+            byteLength: Number(ttsResponse.headers.get("x-tts-byte-length") ?? "0"),
+          },
+        };
+      } else {
+        const ttsError = (await ttsResponse.json().catch(() => null)) as
+          | { debug?: TurnResponse["ttsDebug"]; error?: string }
+          | null;
+        playbackTurn = {
+          ...finalTurn,
+          usedTts: false,
+          ttsMode: "none",
+          ttsDebug: {
+            ...ttsError?.debug,
+            error: ttsError?.debug?.error ?? ttsError?.error ?? `TTS request failed: ${ttsResponse.status}`,
+          },
+        };
+      }
+
       const cards = buildStoryCards(fullNarration || finalTurn.narration, phoneCardWordLimit);
       setStoryCards(cards);
-      setTurn(finalTurn);
-      setHistory((prev) => [...prev, { action: submittedAction, response: finalTurn, createdAt: Date.now() }]);
+      setTurn(playbackTurn);
+      setHistory((prev) => [...prev, { action: submittedAction, response: playbackTurn, createdAt: Date.now() }]);
       setAction("");
 
-      if (finalTurn.audioUrl && audioRef.current) {
-        audioRef.current.src = finalTurn.audioUrl;
+      if (playbackTurn.audioUrl && audioRef.current) {
+        audioRef.current.src = playbackTurn.audioUrl;
         await audioRef.current.play().catch(() => undefined);
       }
     } catch (err) {
@@ -444,6 +489,11 @@ export default function GameClient({
             <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-amber-100/80">
               TTS debug: {turn.ttsDebug?.stage ?? "not-run"} · key {turn.ttsDebug?.hasApiKey ? `${turn.ttsDebug?.apiKeyPrefix ?? "????"}…` : "no"}
             </span>
+            {typeof turn.ttsDebug?.byteLength === "number" && turn.ttsDebug.byteLength > 0 ? (
+              <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-amber-100/80">
+                TTS bytes: {turn.ttsDebug.byteLength}
+              </span>
+            ) : null}
           </div>
 
           <div className="mt-6">
