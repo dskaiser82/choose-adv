@@ -1,0 +1,30 @@
+{
+  "currentScene": {
+    "id": "village-square",
+    "title": "Village Square",
+    "summary": "Lanterns flicker as villagers whisper about the dry well.",
+    "choices": [
+      "Talk to the innkeeper",
+      "Inspect the well",
+      "Ask the mayor for details"
+    ]
+  },
+  "location": "Village Square",
+  "timeOfDay": "dusk",
+  "weather": "windy",
+  "worldFlags": {
+    "wellDry": true,
+    "banditsSeen": true
+  },
+  "npcs": {
+    "innkeeper": {
+      "mood": "guarded",
+      "trust": 0
+    },
+    "mayor": {
+      "mood": "anxious",
+      "trust": 1
+    }
+  },
+  "unlockedLocations": ["village-square", "crooked-inn", "dry-well"]
+}

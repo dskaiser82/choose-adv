@@ -1,0 +1,14 @@
+{
+  "name": "Player One",
+  "health": 100,
+  "status": "stable",
+  "inventory": ["old map", "brass key"],
+  "flags": {
+    "metInnkeeper": false,
+    "foundSecretDoor": false
+  },
+  "activeObjectives": [
+    "Figure out why the village well ran dry",
+    "Decide whether to trust the innkeeper"
+  ]
+}
