@@ -15,6 +15,7 @@ type TurnResponse = {
     stage?: string;
     chunkCount?: number;
     audioUrl?: string | null;
+    audioUrlPreview?: string;
     error?: string;
   };
 };

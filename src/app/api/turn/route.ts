@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { toAsyncIterable } from "@elevenlabs/elevenlabs-js/wrapper/utils";
 
@@ -45,13 +43,8 @@ function buildTurn({
   };
 }
 
-async function saveAudioFromBuffer(buffer: Buffer, extension = "mp3") {
-  const outputDir = path.join(process.cwd(), "public", "generated-audio");
-  await fs.mkdir(outputDir, { recursive: true });
-  const fileName = `turn-${Date.now()}.${extension}`;
-  const outputFile = path.join(outputDir, fileName);
-  await fs.writeFile(outputFile, buffer);
-  return `/generated-audio/${fileName}`;
+async function buildAudioDataUrl(buffer: Buffer, mimeType = "audio/mpeg") {
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
 async function tryElevenLabsTts(text: string) {
@@ -92,15 +85,18 @@ async function tryElevenLabsTts(text: string) {
       };
     }
 
-    const audioUrl = await saveAudioFromBuffer(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), "mp3");
+    const audioBase64Url = await buildAudioDataUrl(
+      Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))),
+      "audio/mpeg",
+    );
     return {
-      audioUrl,
+      audioUrl: audioBase64Url,
       debug: {
         hasApiKey: true,
         apiKeyPrefix: apiKey.slice(0, 4),
         stage: "audio-generated",
         chunkCount: chunks.length,
-        audioUrl,
+        audioUrlPreview: audioBase64Url.slice(0, 32),
       },
     };
   } catch (error) {
