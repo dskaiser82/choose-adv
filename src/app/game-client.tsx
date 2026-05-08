@@ -9,6 +9,14 @@ type TurnResponse = {
   usedTts: boolean;
   audioUrl?: string;
   ttsMode: "elevenlabs" | "none";
+  ttsDebug?: {
+    hasApiKey?: boolean;
+    apiKeyPrefix?: string | null;
+    stage?: string;
+    chunkCount?: number;
+    audioUrl?: string | null;
+    error?: string;
+  };
 };
 
 type TurnHistoryEntry = {
@@ -432,6 +440,9 @@ export default function GameClient({
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
               Phone card target: ~{phoneCardWordLimit} words
             </span>
+            <span className="rounded-full border border-amber-300/20 bg-amber-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-amber-100/80">
+              TTS debug: {turn.ttsDebug?.stage ?? "not-run"} · key {turn.ttsDebug?.hasApiKey ? `${turn.ttsDebug?.apiKeyPrefix ?? "????"}…` : "no"}
+            </span>
           </div>
 
           <div className="mt-6">
@@ -486,6 +497,9 @@ export default function GameClient({
 
           {error ? <p className="text-sm text-rose-300">{error}</p> : null}
           {!hydrated ? <p className="text-sm text-emerald-200/60">Restoring saved browser session...</p> : null}
+          {turn.ttsDebug?.error ? (
+            <p className="text-sm text-amber-300">TTS error: {turn.ttsDebug.error}</p>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-3">
             <button

@@ -57,26 +57,63 @@ async function saveAudioFromBuffer(buffer: Buffer, extension = "mp3") {
 async function tryElevenLabsTts(text: string) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
-    return null;
+    return {
+      audioUrl: null,
+      debug: {
+        hasApiKey: false,
+        apiKeyPrefix: null,
+        stage: "missing-api-key",
+      },
+    };
   }
 
-  const client = new ElevenLabsClient({ apiKey });
-  const audioStream = await client.textToSpeech.convert("21m00Tcm4TlvDq8ikWAM", {
-    text,
-    modelId: "eleven_multilingual_v2",
-    outputFormat: "mp3_44100_128",
-  });
+  try {
+    const client = new ElevenLabsClient({ apiKey });
+    const audioStream = await client.textToSpeech.convert("21m00Tcm4TlvDq8ikWAM", {
+      text,
+      modelId: "eleven_multilingual_v2",
+      outputFormat: "mp3_44100_128",
+    });
 
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of toAsyncIterable(audioStream)) {
-    chunks.push(chunk);
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of toAsyncIterable(audioStream)) {
+      chunks.push(chunk);
+    }
+
+    if (!chunks.length) {
+      return {
+        audioUrl: null,
+        debug: {
+          hasApiKey: true,
+          apiKeyPrefix: apiKey.slice(0, 4),
+          stage: "empty-audio-stream",
+          chunkCount: 0,
+        },
+      };
+    }
+
+    const audioUrl = await saveAudioFromBuffer(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), "mp3");
+    return {
+      audioUrl,
+      debug: {
+        hasApiKey: true,
+        apiKeyPrefix: apiKey.slice(0, 4),
+        stage: "audio-generated",
+        chunkCount: chunks.length,
+        audioUrl,
+      },
+    };
+  } catch (error) {
+    return {
+      audioUrl: null,
+      debug: {
+        hasApiKey: true,
+        apiKeyPrefix: apiKey.slice(0, 4),
+        stage: "elevenlabs-error",
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
-
-  if (!chunks.length) {
-    return null;
-  }
-
-  return saveAudioFromBuffer(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), "mp3");
 }
 
 
@@ -124,14 +161,10 @@ export async function POST(req: Request) {
 
       let audioUrl: string | undefined;
       let ttsMode: "elevenlabs" | "none" = "none";
-
-      try {
-        audioUrl = (await tryElevenLabsTts(turn.narration)) ?? undefined;
-        if (audioUrl) {
-          ttsMode = "elevenlabs";
-        }
-      } catch {
-        ttsMode = "none";
+      const ttsResult = await tryElevenLabsTts(turn.narration);
+      audioUrl = ttsResult.audioUrl ?? undefined;
+      if (audioUrl) {
+        ttsMode = "elevenlabs";
       }
 
       controller.enqueue(
@@ -143,6 +176,7 @@ export async function POST(req: Request) {
             usedTts: Boolean(audioUrl),
             audioUrl,
             ttsMode,
+            ttsDebug: ttsResult.debug,
           }),
         ),
       );
