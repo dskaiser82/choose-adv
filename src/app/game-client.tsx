@@ -35,8 +35,9 @@ type GameClientProps = {
 
 const STORAGE_KEY = "choose-adventure-mvp-state";
 const DEFAULT_REVEAL_SPEED = 1500;
-const HOLD_TIME_MS = 1100;
-const CLEAR_TIME_MS = 450;
+const CARD_FADE_MS = 420;
+const DEFAULT_PHONE_CARD_WORD_LIMIT = 34;
+const SWIPE_THRESHOLD_PX = 60;
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   return {
@@ -61,12 +62,36 @@ export function splitIntoSentences(text: string) {
     .filter(Boolean);
 }
 
-export function buildStoryCards(text: string) {
+export function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function estimatePhoneCardWordLimit(viewportWidth: number) {
+  if (viewportWidth <= 360) return 30;
+  if (viewportWidth <= 390) return 34;
+  if (viewportWidth <= 430) return 38;
+  return 42;
+}
+
+export function buildStoryCards(text: string, maxWordsPerCard = DEFAULT_PHONE_CARD_WORD_LIMIT) {
   const sentences = splitIntoSentences(text);
   const cards: string[] = [];
-  for (let i = 0; i < sentences.length; i += 2) {
-    cards.push(sentences.slice(i, i + 2).join(" "));
+  let currentCard = "";
+
+  for (const sentence of sentences) {
+    const nextCard = currentCard ? `${currentCard} ${sentence}` : sentence;
+    if (currentCard && countWords(nextCard) > maxWordsPerCard) {
+      cards.push(currentCard);
+      currentCard = sentence;
+      continue;
+    }
+    currentCard = nextCard;
   }
+
+  if (currentCard) {
+    cards.push(currentCard);
+  }
+
   return cards.filter(Boolean);
 }
 
@@ -92,10 +117,12 @@ export default function GameClient({
   const [displayedCardText, setDisplayedCardText] = useState("");
   const [isCardVisible, setIsCardVisible] = useState(false);
   const [storyModeDone, setStoryModeDone] = useState(false);
+  const [isTransitioningCard, setIsTransitioningCard] = useState(false);
+  const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const runIdRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
 
   const context = useMemo(() => {
     return [
@@ -130,6 +157,18 @@ export default function GameClient({
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateWordLimit = () => {
+      setPhoneCardWordLimit(estimatePhoneCardWordLimit(window.innerWidth));
+    };
+
+    updateWordLimit();
+    window.addEventListener("resize", updateWordLimit);
+    return () => window.removeEventListener("resize", updateWordLimit);
+  }, []);
+
+  useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
     const payload: PersistedGameState = {
       actionDraft: action,
@@ -157,27 +196,26 @@ export default function GameClient({
     if (!storyCards.length) return;
     if (cardIndex >= storyCards.length) {
       setStoryModeDone(true);
+      setDisplayedCardText("");
       setIsCardVisible(false);
+      setIsTransitioningCard(false);
       return;
     }
 
-    runIdRef.current += 1;
-    const runId = runIdRef.current;
-    const currentCard = storyCards[cardIndex];
-
-    setDisplayedCardText(currentCard);
-    setIsCardVisible(true);
+    setDisplayedCardText(storyCards[cardIndex]);
+    setIsCardVisible(false);
     setStoryModeDone(false);
+    setIsTransitioningCard(true);
+
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
 
     timerRef.current = setTimeout(() => {
-      if (runId !== runIdRef.current) return;
-      setIsCardVisible(false);
-      timerRef.current = setTimeout(() => {
-        if (runId !== runIdRef.current) return;
-        setDisplayedCardText("");
-        setCardIndex((prev) => prev + 1);
-      }, CLEAR_TIME_MS);
-    }, revealSpeed + HOLD_TIME_MS);
+      setIsCardVisible(true);
+      setIsTransitioningCard(false);
+      timerRef.current = null;
+    }, 40);
 
     return () => {
       if (timerRef.current) {
@@ -185,7 +223,7 @@ export default function GameClient({
         timerRef.current = null;
       }
     };
-  }, [showOverlay, storyCards, cardIndex, revealSpeed]);
+  }, [showOverlay, storyCards, cardIndex]);
 
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
@@ -198,7 +236,6 @@ export default function GameClient({
   }
 
   function resetStoryMode() {
-    runIdRef.current += 1;
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -208,6 +245,7 @@ export default function GameClient({
     setDisplayedCardText("");
     setIsCardVisible(false);
     setStoryModeDone(false);
+    setIsTransitioningCard(false);
   }
 
   function resetSession() {
@@ -221,6 +259,47 @@ export default function GameClient({
       window.localStorage.removeItem(STORAGE_KEY);
       window.speechSynthesis?.cancel();
     }
+  }
+
+  function goToNextCard() {
+    if (loading || isTransitioningCard) return;
+    if (!storyCards.length) return;
+    if (cardIndex >= storyCards.length - 1) {
+      setStoryModeDone(true);
+      setDisplayedCardText("");
+      setIsCardVisible(false);
+      return;
+    }
+
+    setIsTransitioningCard(true);
+    setIsCardVisible(false);
+
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+
+    timerRef.current = setTimeout(() => {
+      setCardIndex((prev) => prev + 1);
+      timerRef.current = null;
+    }, CARD_FADE_MS);
+  }
+
+  function goToPreviousCard() {
+    if (loading || isTransitioningCard) return;
+    if (cardIndex <= 0) return;
+
+    setStoryModeDone(false);
+    setIsTransitioningCard(true);
+    setIsCardVisible(false);
+
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+
+    timerRef.current = setTimeout(() => {
+      setCardIndex((prev) => Math.max(prev - 1, 0));
+      timerRef.current = null;
+    }, CARD_FADE_MS);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -284,7 +363,7 @@ export default function GameClient({
         throw new Error("Stream completed without final turn data.");
       }
 
-      const cards = buildStoryCards(fullNarration || finalTurn.narration);
+      const cards = buildStoryCards(fullNarration || finalTurn.narration, phoneCardWordLimit);
       setStoryCards(cards);
       setTurn(finalTurn);
       setHistory((prev) => [...prev, { action: submittedAction, response: finalTurn, createdAt: Date.now() }]);
@@ -305,6 +384,7 @@ export default function GameClient({
   }
 
   const shouldShowOverlay = showOverlay;
+  const currentCardWords = displayedCardText ? countWords(displayedCardText) : 0;
 
   return (
     <>
@@ -362,6 +442,9 @@ export default function GameClient({
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
               Persistence: local browser storage
             </span>
+            <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
+              Phone card target: ~{phoneCardWordLimit} words
+            </span>
             <button
               type="button"
               onClick={() => speakWithBrowser(turn.narration)}
@@ -404,7 +487,7 @@ export default function GameClient({
 
           <div>
             <label htmlFor="reveal-speed" className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">
-              Story card speed
+              Fade speed
             </label>
             <div className="mt-3 flex items-center gap-4">
               <input
@@ -473,14 +556,31 @@ export default function GameClient({
             Close
           </button>
 
-          <div className="flex h-full w-full items-center justify-center px-8 text-center">
+          <div
+            className="flex h-full w-full items-center justify-center px-5 text-center md:px-8"
+            onTouchStart={(e) => {
+              touchStartYRef.current = e.changedTouches[0]?.clientY ?? null;
+            }}
+            onTouchEnd={(e) => {
+              const startY = touchStartYRef.current;
+              const endY = e.changedTouches[0]?.clientY;
+              touchStartYRef.current = null;
+              if (startY == null || endY == null) return;
+              const deltaY = startY - endY;
+              if (deltaY > SWIPE_THRESHOLD_PX) goToNextCard();
+              if (deltaY < -SWIPE_THRESHOLD_PX) goToPreviousCard();
+            }}
+          >
             <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
               {displayedCardText ? (
-                <p
-                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-all duration-700 md:text-5xl ${isCardVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
-                >
-                  {displayedCardText}
-                </p>
+                <div className="w-full max-w-[22rem] rounded-[32px] border border-white/10 bg-white/[0.035] px-5 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur-sm md:max-w-3xl md:px-10 md:py-12">
+                  <p
+                    className={`whitespace-pre-wrap text-[1.65rem] leading-[1.55] text-white transition-all md:text-5xl ${isCardVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+                    style={{ transitionDuration: `${revealSpeed}ms` }}
+                  >
+                    {displayedCardText}
+                  </p>
+                </div>
               ) : loading ? (
                 <div className="flex items-center gap-3 text-white/60">
                   <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-white/70" />
@@ -490,23 +590,48 @@ export default function GameClient({
                 <div className="space-y-4">
                   <p className="text-3xl leading-[1.55] text-white md:text-5xl">End of passage.</p>
                   <p className="text-sm uppercase tracking-[0.28em] text-white/45">
-                    Close to review the full text and metadata below
+                    Swipe down to revisit or close to review the full text below
                   </p>
                 </div>
               ) : null}
             </div>
           </div>
 
-          <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 text-center">
-            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-              Release {releaseVersion}
-            </span>
-            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-              Card speed {(revealSpeed / 1000).toFixed(1)}s
-            </span>
-            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-              Cards {cardIndex + (displayedCardText ? 1 : 0)}/{Math.max(storyCards.length, cardIndex + (displayedCardText ? 1 : 0), 1)}
-            </span>
+          <div className="absolute bottom-5 left-1/2 flex w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 flex-col items-center justify-center gap-3 text-center sm:w-auto">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+                Release {releaseVersion}
+              </span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+                Fade {(revealSpeed / 1000).toFixed(1)}s
+              </span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+                Cards {storyCards.length === 0 ? 0 : Math.min(cardIndex + 1, storyCards.length)}/{Math.max(storyCards.length, 1)}
+              </span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+                This card {currentCardWords}/{phoneCardWordLimit} words
+              </span>
+            </div>
+
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={goToPreviousCard}
+                disabled={loading || isTransitioningCard || cardIndex === 0}
+                className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="text-xs uppercase tracking-[0.18em] text-white/50">Swipe up for next card</span>
+              <button
+                type="button"
+                onClick={goToNextCard}
+                disabled={loading || isTransitioningCard || storyModeDone || storyCards.length === 0}
+                className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
