@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import GameClient from "./game-client";
 
 type CharactersState = {
   player: {
@@ -79,11 +80,19 @@ export default async function Home() {
               {world.world.name} Campaign Console
             </h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-amber-100/80 md:text-base">
-              A living campaign brief for {player.name}, with world notes, character background, and the latest canonical
-              state files driving the public adventure view.
+              A living campaign brief for {player.name}, with world notes, character background, and a playable MVP for
+              freeform narrated turns.
             </p>
           </div>
         </header>
+
+        <GameClient
+          worldName={world.world.name}
+          playerName={player.name}
+          playerRegion={player.origin?.region}
+          playerRole={player.background?.role}
+          summaryText={summary}
+        />
 
         <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
           <section className="space-y-6">
@@ -91,7 +100,9 @@ export default async function Home() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-amber-300/70">Campaign summary</p>
-                  <h2 className="mt-2 text-3xl font-semibold text-amber-50">{player.name} of {player.origin?.kingdom ?? "Unknown Kingdom"}</h2>
+                  <h2 className="mt-2 text-3xl font-semibold text-amber-50">
+                    {player.name} of {player.origin?.kingdom ?? "Unknown Kingdom"}
+                  </h2>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-amber-100/80">
                   {player.status ? (
