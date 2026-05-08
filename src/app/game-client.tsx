@@ -38,13 +38,9 @@ type StreamingMeta = {
   suggestedChoices: string[];
 };
 
-type RevealSentence = {
-  id: string;
-  text: string;
-};
-
 const STORAGE_KEY = "choose-adventure-mvp-state";
-const DEFAULT_REVEAL_SPEED = 900;
+const DEFAULT_REVEAL_SPEED = 1800;
+const FADE_DURATION_MS = 900;
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   return {
@@ -69,6 +65,14 @@ function splitIntoSentences(text: string) {
     .filter(Boolean);
 }
 
+function groupSentences(sentences: string[]) {
+  const groups: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) {
+    groups.push(sentences.slice(i, i + 2).join(" "));
+  }
+  return groups;
+}
+
 export default function GameClient({
   worldName,
   playerName,
@@ -89,13 +93,15 @@ export default function GameClient({
   const [streamedNarration, setStreamedNarration] = useState("");
   const [streamedMeta, setStreamedMeta] = useState<StreamingMeta | null>(null);
   const [revealSpeed, setRevealSpeed] = useState(DEFAULT_REVEAL_SPEED);
-  const [revealedSentences, setRevealedSentences] = useState<RevealSentence[]>([]);
-  const [pendingSentences, setPendingSentences] = useState<string[]>([]);
+  const [storyChunks, setStoryChunks] = useState<string[]>([]);
+  const [displayedChunk, setDisplayedChunk] = useState("");
+  const [chunkVisible, setChunkVisible] = useState(false);
+  const [storyModeDone, setStoryModeDone] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
-  const overlayNarrationRef = useRef<HTMLDivElement | null>(null);
-  const sentenceQueueRef = useRef<string[]>([]);
-  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const storyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chunkQueueRef = useRef<string[]>([]);
+  const storyIndexRef = useRef(0);
 
   const context = useMemo(() => {
     return [
@@ -150,42 +156,42 @@ export default function GameClient({
 
   useEffect(() => {
     narrationBoxRef.current?.scrollTo({ top: narrationBoxRef.current.scrollHeight, behavior: "smooth" });
-    overlayNarrationRef.current?.scrollTo({ top: overlayNarrationRef.current.scrollHeight, behavior: "smooth" });
-  }, [revealedSentences]);
+  }, [turn.narration]);
 
   useEffect(() => {
-    sentenceQueueRef.current = pendingSentences;
-  }, [pendingSentences]);
+    chunkQueueRef.current = storyChunks;
+  }, [storyChunks]);
 
   useEffect(() => {
     if (!showOverlay) return;
-    if (revealedSentences.length === 0 && sentenceQueueRef.current.length === 0) return;
-    if (revealTimerRef.current) return;
+    if (storyTimerRef.current) return;
+    if (chunkVisible || displayedChunk) return;
+    if (chunkQueueRef.current.length === 0) return;
 
-    const tick = () => {
-      const next = sentenceQueueRef.current[0];
-      if (!next) {
-        revealTimerRef.current = null;
-        return;
-      }
+    const nextChunk = chunkQueueRef.current[0];
+    setDisplayedChunk(nextChunk);
+    setStoryChunks((prev) => prev.slice(1));
+    storyIndexRef.current += 1;
+    setChunkVisible(true);
 
-      setRevealedSentences((prev) => [
-        ...prev,
-        { id: `${Date.now()}-${prev.length}`, text: next },
-      ]);
-      setPendingSentences((prev) => prev.slice(1));
-      revealTimerRef.current = null;
-    };
-
-    revealTimerRef.current = setTimeout(tick, revealSpeed);
+    storyTimerRef.current = setTimeout(() => {
+      setChunkVisible(false);
+      storyTimerRef.current = setTimeout(() => {
+        setDisplayedChunk("");
+        storyTimerRef.current = null;
+        if (!streaming && chunkQueueRef.current.length === 0) {
+          setStoryModeDone(true);
+        }
+      }, FADE_DURATION_MS);
+    }, revealSpeed);
 
     return () => {
-      if (revealTimerRef.current) {
-        clearTimeout(revealTimerRef.current);
-        revealTimerRef.current = null;
+      if (storyTimerRef.current) {
+        clearTimeout(storyTimerRef.current);
+        storyTimerRef.current = null;
       }
     };
-  }, [pendingSentences, revealSpeed, showOverlay, revealedSentences.length]);
+  }, [showOverlay, storyChunks, revealSpeed, chunkVisible, displayedChunk, streaming]);
 
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
@@ -197,6 +203,19 @@ export default function GameClient({
     return true;
   }
 
+  function resetStoryMode() {
+    setStoryChunks([]);
+    setDisplayedChunk("");
+    setChunkVisible(false);
+    setStoryModeDone(false);
+    storyIndexRef.current = 0;
+    chunkQueueRef.current = [];
+    if (storyTimerRef.current) {
+      clearTimeout(storyTimerRef.current);
+      storyTimerRef.current = null;
+    }
+  }
+
   function resetSession() {
     setAction("");
     setError(null);
@@ -205,13 +224,7 @@ export default function GameClient({
     setStreamedNarration("");
     setStreamedMeta(null);
     setShowOverlay(false);
-    setRevealedSentences([]);
-    setPendingSentences([]);
-    sentenceQueueRef.current = [];
-    if (revealTimerRef.current) {
-      clearTimeout(revealTimerRef.current);
-      revealTimerRef.current = null;
-    }
+    resetStoryMode();
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
       window.speechSynthesis?.cancel();
@@ -229,13 +242,7 @@ export default function GameClient({
     setError(null);
     setStreamedNarration("");
     setStreamedMeta(null);
-    setRevealedSentences([]);
-    setPendingSentences([]);
-    sentenceQueueRef.current = [];
-    if (revealTimerRef.current) {
-      clearTimeout(revealTimerRef.current);
-      revealTimerRef.current = null;
-    }
+    resetStoryMode();
 
     try {
       const response = await fetch("/api/turn", {
@@ -290,7 +297,7 @@ export default function GameClient({
             const complete = endsCleanly ? parts : parts.slice(0, -1);
             const remainder = endsCleanly ? "" : parts.at(-1) ?? sentenceBuffer;
             if (complete.length > 0) {
-              setPendingSentences((prev) => [...prev, ...complete]);
+              setStoryChunks((prev) => [...prev, ...groupSentences(complete)]);
               sentenceBuffer = remainder;
             }
           } else if (eventName === "done") {
@@ -300,7 +307,7 @@ export default function GameClient({
       }
 
       if (sentenceBuffer.trim()) {
-        setPendingSentences((prev) => [...prev, sentenceBuffer.trim()]);
+        setStoryChunks((prev) => [...prev, ...groupSentences([sentenceBuffer.trim()])]);
       }
 
       if (!finalTurn) {
@@ -327,11 +334,9 @@ export default function GameClient({
   }
 
   const activeTitle = streaming ? streamedMeta?.sceneTitle ?? "Narrating live..." : turn.sceneTitle;
-  const activeNarration = streaming ? streamedNarration || "..." : turn.narration;
   const activeChoices = streaming ? streamedMeta?.suggestedChoices ?? [] : turn.suggestedChoices;
   const activeVoiceMode = streaming ? "streaming" : turn.ttsMode;
   const shouldShowOverlay = showOverlay || streaming;
-  const hiddenSentenceCount = splitIntoSentences(activeNarration).length - revealedSentences.length;
 
   return (
     <>
@@ -371,28 +376,20 @@ export default function GameClient({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Current narration</p>
-              <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{activeTitle}</h3>
+              <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{turn.sceneTitle}</h3>
             </div>
-            {streaming ? (
-              <div className="mt-1 flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-50">
-                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-                Live
-              </div>
-            ) : null}
           </div>
 
           <div
             ref={narrationBoxRef}
             className="mt-4 min-h-[260px] max-h-[52vh] overflow-y-auto rounded-2xl border border-emerald-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] p-4 md:min-h-[320px]"
           >
-            <p className={`whitespace-pre-wrap text-base leading-8 text-emerald-50/95 transition-all duration-500 ${streaming ? "opacity-95" : "opacity-100"}`}>
-              {activeNarration}
-            </p>
+            <p className="whitespace-pre-wrap text-base leading-8 text-emerald-50/95">{turn.narration}</p>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-              Voice mode: {activeVoiceMode}
+              Voice mode: {turn.ttsMode}
             </span>
             <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
               Persistence: local browser storage
@@ -409,7 +406,7 @@ export default function GameClient({
           <div className="mt-6">
             <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Suggested prompts</p>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
-              {activeChoices.map((choice) => (
+              {turn.suggestedChoices.map((choice) => (
                 <button
                   key={choice}
                   type="button"
@@ -439,20 +436,20 @@ export default function GameClient({
 
           <div>
             <label htmlFor="reveal-speed" className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">
-              Fade speed
+              Story card speed
             </label>
             <div className="mt-3 flex items-center gap-4">
               <input
                 id="reveal-speed"
                 type="range"
-                min="350"
-                max="2200"
-                step="50"
+                min="900"
+                max="4000"
+                step="100"
                 value={revealSpeed}
                 onChange={(e) => setRevealSpeed(Number(e.target.value))}
                 className="w-full accent-emerald-300"
               />
-              <span className="min-w-20 text-sm text-emerald-100/75">{(revealSpeed / 1000).toFixed(2)}s</span>
+              <span className="min-w-20 text-sm text-emerald-100/75">{(revealSpeed / 1000).toFixed(1)}s</span>
             </div>
           </div>
 
@@ -499,76 +496,52 @@ export default function GameClient({
       </section>
 
       {shouldShowOverlay ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 backdrop-blur-sm md:items-center">
-          <div className="relative flex h-[88vh] w-full max-w-2xl flex-col rounded-t-[28px] border border-emerald-300/20 bg-[linear-gradient(180deg,rgba(12,27,22,0.98),rgba(8,17,14,0.98))] shadow-[0_20px_80px_rgba(0,0,0,0.55)] md:h-[80vh] md:rounded-[28px]">
-            <div className="flex items-center justify-between gap-3 border-b border-emerald-200/10 px-5 py-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Narration focus mode</p>
-                <h3 className="mt-2 text-xl font-semibold text-emerald-50">{activeTitle}</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowOverlay(false)}
-                className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-emerald-100 transition hover:bg-emerald-200/15"
-              >
-                {streaming ? "Hide panel" : "Done"}
-              </button>
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+          <button
+            type="button"
+            onClick={() => setShowOverlay(false)}
+            className="absolute right-5 top-5 z-10 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10"
+          >
+            Close
+          </button>
 
-            <div ref={overlayNarrationRef} className="flex-1 overflow-y-auto px-5 py-5">
-              <div className="space-y-5">
-                {revealedSentences.map((sentence) => (
-                  <p
-                    key={sentence.id}
-                    className="animate-[fadeIn_900ms_ease_forwards] whitespace-pre-wrap text-lg leading-9 text-emerald-50 opacity-0"
-                  >
-                    {sentence.text}
+          <div className="flex h-full w-full items-center justify-center px-8 text-center">
+            <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
+              {displayedChunk ? (
+                <p
+                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-all md:text-5xl ${chunkVisible ? "opacity-100" : "opacity-0"}`}
+                  style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
+                >
+                  {displayedChunk}
+                </p>
+              ) : streaming ? (
+                <div className="flex items-center gap-3 text-white/60">
+                  <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-white/70" />
+                  <span className="text-sm uppercase tracking-[0.3em]">Listening for the next beat</span>
+                </div>
+              ) : storyModeDone ? (
+                <div className="space-y-4">
+                  <p className="text-3xl leading-[1.55] text-white md:text-5xl">End of passage.</p>
+                  <p className="text-sm uppercase tracking-[0.28em] text-white/45">
+                    Close to review the full text and metadata below
                   </p>
-                ))}
-                {streaming && hiddenSentenceCount > 0 ? (
-                  <div className="flex items-center gap-2 text-sm uppercase tracking-[0.2em] text-emerald-200/55">
-                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-                    More text incoming
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="border-t border-emerald-200/10 px-5 py-4">
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-sky-100/85">
-                  Release {releaseVersion}
-                </span>
-                <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-                  Voice mode: {activeVoiceMode}
-                </span>
-                <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-                  Fade speed: {(revealSpeed / 1000).toFixed(2)}s
-                </span>
-                {streaming ? (
-                  <span className="rounded-full border border-emerald-300/20 bg-emerald-300/15 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-50">
-                    Streaming live
-                  </span>
-                ) : null}
-              </div>
-              {activeChoices.length > 0 ? (
-                <div className="mt-4 grid gap-2">
-                  {activeChoices.map((choice) => (
-                    <button
-                      key={`overlay-${choice}`}
-                      type="button"
-                      onClick={() => {
-                        setAction(choice);
-                        setShowOverlay(false);
-                      }}
-                      className="rounded-2xl border border-emerald-300/20 bg-[linear-gradient(180deg,rgba(110,231,183,0.10),rgba(110,231,183,0.03))] px-4 py-3 text-left text-sm text-emerald-50 transition hover:bg-emerald-200/10"
-                    >
-                      {choice}
-                    </button>
-                  ))}
                 </div>
               ) : null}
             </div>
+          </div>
+
+          <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 text-center">
+            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              Release {releaseVersion}
+            </span>
+            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              Card speed {(revealSpeed / 1000).toFixed(1)}s
+            </span>
+            {streaming ? (
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+                Streaming story mode
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}
