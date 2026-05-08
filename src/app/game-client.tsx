@@ -32,6 +32,8 @@ type PersistedGameState = {
   revealSpeed: number;
 };
 
+type AudioPlaybackState = "idle" | "loading" | "ready" | "playing" | "blocked" | "error";
+
 type GameClientProps = {
   worldName: string;
   playerName: string;
@@ -127,6 +129,8 @@ export default function GameClient({
   const [storyModeDone, setStoryModeDone] = useState(false);
   const [isTransitioningCard, setIsTransitioningCard] = useState(false);
   const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
+  const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>("idle");
+  const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -252,6 +256,13 @@ export default function GameClient({
     setHistory([]);
     setTurn(initialTurn);
     setShowOverlay(false);
+    setAudioPlaybackState("idle");
+    setAudioStatusMessage(null);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+    }
     resetStoryMode();
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
@@ -299,6 +310,18 @@ export default function GameClient({
     }, CARD_FADE_MS);
   }
 
+  async function playCurrentAudio() {
+    if (!audioRef.current || !turn.audioUrl) return;
+    setAudioStatusMessage(null);
+    try {
+      await audioRef.current.play();
+      setAudioPlaybackState("playing");
+    } catch (err) {
+      setAudioPlaybackState("blocked");
+      setAudioStatusMessage(err instanceof Error ? err.message : "Browser blocked audio playback.");
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!action.trim()) return;
@@ -307,6 +330,8 @@ export default function GameClient({
     setLoading(true);
     setShowOverlay(true);
     setError(null);
+    setAudioPlaybackState("loading");
+    setAudioStatusMessage(null);
     resetStoryMode();
 
     try {
@@ -378,6 +403,8 @@ export default function GameClient({
       if (ttsResponse.ok) {
         const audioBlob = await ttsResponse.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
+        setAudioPlaybackState("ready");
+        setAudioStatusMessage("Audio ready");
         playbackTurn = {
           ...finalTurn,
           usedTts: true,
@@ -392,9 +419,11 @@ export default function GameClient({
           },
         };
       } else {
+        setAudioPlaybackState("error");
         const ttsError = (await ttsResponse.json().catch(() => null)) as
           | { debug?: TurnResponse["ttsDebug"]; error?: string }
           | null;
+        setAudioStatusMessage(ttsError?.debug?.error ?? ttsError?.error ?? `TTS request failed: ${ttsResponse.status}`);
         playbackTurn = {
           ...finalTurn,
           usedTts: false,
@@ -414,9 +443,18 @@ export default function GameClient({
 
       if (playbackTurn.audioUrl && audioRef.current) {
         audioRef.current.src = playbackTurn.audioUrl;
-        await audioRef.current.play().catch(() => undefined);
+        try {
+          await audioRef.current.play();
+          setAudioPlaybackState("playing");
+          setAudioStatusMessage("Audio playing");
+        } catch (err) {
+          setAudioPlaybackState("blocked");
+          setAudioStatusMessage(err instanceof Error ? err.message : "Tap play to start narration audio.");
+        }
       }
     } catch (err) {
+      setAudioPlaybackState("error");
+      setAudioStatusMessage(err instanceof Error ? err.message : "Something went wrong.");
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setShowOverlay(false);
     } finally {
@@ -494,6 +532,9 @@ export default function GameClient({
                 TTS bytes: {turn.ttsDebug.byteLength}
               </span>
             ) : null}
+            <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-sky-100/85">
+              Audio: {audioPlaybackState}
+            </span>
           </div>
 
           <div className="mt-6">
@@ -551,6 +592,7 @@ export default function GameClient({
           {turn.ttsDebug?.error ? (
             <p className="text-sm text-amber-300">TTS error: {turn.ttsDebug.error}</p>
           ) : null}
+          {audioStatusMessage ? <p className="text-sm text-sky-200">Audio status: {audioStatusMessage}</p> : null}
 
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -560,6 +602,15 @@ export default function GameClient({
             >
               {loading ? "Building scene..." : "Send action"}
             </button>
+            {turn.audioUrl ? (
+              <button
+                type="button"
+                onClick={playCurrentAudio}
+                className="rounded-full border border-sky-300/20 bg-sky-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-sky-100 transition hover:bg-sky-200/15"
+              >
+                Play narration
+              </button>
+            ) : null}
             <p className="text-sm text-emerald-100/65">
               Summary seed: {summaryText.slice(0, 120)}
               {summaryText.length > 120 ? "..." : ""}
@@ -588,7 +639,7 @@ export default function GameClient({
           </div>
         ) : null}
 
-        <audio ref={audioRef} className="hidden" />
+        <audio ref={audioRef} controls preload="auto" className="mt-4 w-full max-w-xl" />
       </section>
 
       {shouldShowOverlay ? (
