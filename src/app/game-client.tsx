@@ -31,6 +31,11 @@ type GameClientProps = {
   summaryText: string;
 };
 
+type StreamingMeta = {
+  sceneTitle: string;
+  suggestedChoices: string[];
+};
+
 const STORAGE_KEY = "choose-adventure-mvp-state";
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
@@ -59,10 +64,13 @@ export default function GameClient({
   const initialTurn = useMemo(() => buildInitialTurn(worldName, playerName), [worldName, playerName]);
   const [action, setAction] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [turn, setTurn] = useState<TurnResponse>(initialTurn);
   const [history, setHistory] = useState<TurnHistoryEntry[]>([]);
+  const [streamedNarration, setStreamedNarration] = useState("");
+  const [streamedMeta, setStreamedMeta] = useState<StreamingMeta | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const context = useMemo(() => {
@@ -121,6 +129,8 @@ export default function GameClient({
     setError(null);
     setHistory([]);
     setTurn(initialTurn);
+    setStreamedNarration("");
+    setStreamedMeta(null);
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
       window.speechSynthesis?.cancel();
@@ -133,7 +143,10 @@ export default function GameClient({
 
     const submittedAction = action.trim();
     setLoading(true);
+    setStreaming(true);
     setError(null);
+    setStreamedNarration("");
+    setStreamedMeta(null);
 
     try {
       const response = await fetch("/api/turn", {
@@ -150,27 +163,69 @@ export default function GameClient({
         }),
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         throw new Error(`Turn request failed: ${response.status}`);
       }
 
-      const data = (await response.json()) as TurnResponse;
-      setTurn(data);
-      setHistory((prev) => [...prev, { action: submittedAction, response: data, createdAt: Date.now() }]);
-      setAction("");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalTurn: TurnResponse | null = null;
 
-      if (data.audioUrl && audioRef.current) {
-        audioRef.current.src = data.audioUrl;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+
+        for (const rawEvent of events) {
+          const lines = rawEvent.split("\n");
+          const eventLine = lines.find((line) => line.startsWith("event: "));
+          const dataLine = lines.find((line) => line.startsWith("data: "));
+          if (!eventLine || !dataLine) continue;
+
+          const eventName = eventLine.slice(7).trim();
+          const payload = JSON.parse(dataLine.slice(6));
+
+          if (eventName === "meta") {
+            setStreamedMeta(payload as StreamingMeta);
+          } else if (eventName === "chunk") {
+            setStreamedNarration((prev) => prev + String(payload.text ?? ""));
+          } else if (eventName === "done") {
+            finalTurn = payload as TurnResponse;
+          }
+        }
+      }
+
+      if (!finalTurn) {
+        throw new Error("Stream completed without final turn data.");
+      }
+
+      setTurn(finalTurn);
+      setHistory((prev) => [...prev, { action: submittedAction, response: finalTurn, createdAt: Date.now() }]);
+      setAction("");
+      setStreaming(false);
+
+      if (finalTurn.audioUrl && audioRef.current) {
+        audioRef.current.src = finalTurn.audioUrl;
         await audioRef.current.play().catch(() => undefined);
       } else {
-        await speakWithBrowser(data.narration);
+        await speakWithBrowser(finalTurn.narration);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
+      setStreaming(false);
     } finally {
       setLoading(false);
     }
   }
+
+  const activeTitle = streaming ? streamedMeta?.sceneTitle ?? "Narrating live..." : turn.sceneTitle;
+  const activeNarration = streaming ? streamedNarration || "..." : turn.narration;
+  const activeChoices = streaming ? streamedMeta?.suggestedChoices ?? [] : turn.suggestedChoices;
+  const activeVoiceMode = streaming ? "streaming" : turn.ttsMode;
 
   return (
     <section className="rounded-[28px] border border-emerald-300/20 bg-[linear-gradient(180deg,rgba(16,34,28,0.92),rgba(11,19,17,0.96))] p-5 shadow-[0_0_0_1px_rgba(110,231,183,0.04),0_24px_70px_rgba(0,0,0,0.35)] md:p-6">
@@ -179,8 +234,8 @@ export default function GameClient({
           <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/70">Playable MVP</p>
           <h2 className="mt-2 text-3xl font-semibold text-emerald-50">Narrator Loop Test</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-emerald-100/75">
-            Freeform input in, narrated response out. If Piper is installed on the host, the site can use it. If not,
-            it falls back to browser speech.
+            Freeform input in, narrated response out. Now with live streaming text for a more fluid feel. If Piper is
+            installed on the host, the site can use it. If not, it falls back to browser speech.
           </p>
         </div>
         <div className="flex flex-col items-start gap-3 md:items-end">
@@ -204,16 +259,21 @@ export default function GameClient({
 
       <div className="mt-5 rounded-2xl border border-emerald-200/10 bg-black/25 p-5">
         <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Current narration</p>
-        <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{turn.sceneTitle}</h3>
-        <p className="mt-4 whitespace-pre-wrap text-base leading-8 text-emerald-50/95">{turn.narration}</p>
+        <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{activeTitle}</h3>
+        <p className="mt-4 whitespace-pre-wrap text-base leading-8 text-emerald-50/95">{activeNarration}</p>
 
         <div className="mt-5 flex flex-wrap gap-2">
           <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-            Voice mode: {turn.ttsMode}
+            Voice mode: {activeVoiceMode}
           </span>
           <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
             Persistence: local browser storage
           </span>
+          {streaming ? (
+            <span className="rounded-full border border-emerald-300/20 bg-emerald-300/15 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-50">
+              Streaming live
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={() => speakWithBrowser(turn.narration)}
@@ -226,7 +286,7 @@ export default function GameClient({
         <div className="mt-6">
           <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Suggested prompts</p>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
-            {turn.suggestedChoices.map((choice) => (
+            {activeChoices.map((choice) => (
               <button
                 key={choice}
                 type="button"
@@ -263,7 +323,7 @@ export default function GameClient({
             disabled={loading}
             className="rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#0b1512] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Narrating..." : "Send action"}
+            {loading ? (streaming ? "Streaming..." : "Narrating...") : "Send action"}
           </button>
           <p className="text-sm text-emerald-100/65">
             Summary seed: {summaryText.slice(0, 120)}
