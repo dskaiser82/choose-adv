@@ -21,6 +21,7 @@ type PersistedGameState = {
   actionDraft: string;
   currentTurn: TurnResponse;
   history: TurnHistoryEntry[];
+  revealSpeed: number;
 };
 
 type GameClientProps = {
@@ -37,7 +38,13 @@ type StreamingMeta = {
   suggestedChoices: string[];
 };
 
+type RevealSentence = {
+  id: string;
+  text: string;
+};
+
 const STORAGE_KEY = "choose-adventure-mvp-state";
+const DEFAULT_REVEAL_SPEED = 900;
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   return {
@@ -53,6 +60,13 @@ function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
     usedTts: false,
     ttsMode: "none",
   };
+}
+
+function splitIntoSentences(text: string) {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 export default function GameClient({
@@ -74,9 +88,14 @@ export default function GameClient({
   const [history, setHistory] = useState<TurnHistoryEntry[]>([]);
   const [streamedNarration, setStreamedNarration] = useState("");
   const [streamedMeta, setStreamedMeta] = useState<StreamingMeta | null>(null);
+  const [revealSpeed, setRevealSpeed] = useState(DEFAULT_REVEAL_SPEED);
+  const [revealedSentences, setRevealedSentences] = useState<RevealSentence[]>([]);
+  const [pendingSentences, setPendingSentences] = useState<string[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const overlayNarrationRef = useRef<HTMLDivElement | null>(null);
+  const sentenceQueueRef = useRef<string[]>([]);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const context = useMemo(() => {
     return [
@@ -102,6 +121,7 @@ export default function GameClient({
       if (parsed.actionDraft) setAction(parsed.actionDraft);
       if (parsed.currentTurn) setTurn(parsed.currentTurn);
       if (Array.isArray(parsed.history)) setHistory(parsed.history);
+      if (typeof parsed.revealSpeed === "number") setRevealSpeed(parsed.revealSpeed);
     } catch {
       // Ignore bad local state and continue with defaults.
     } finally {
@@ -115,9 +135,10 @@ export default function GameClient({
       actionDraft: action,
       currentTurn: turn,
       history,
+      revealSpeed,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [action, turn, history, hydrated]);
+  }, [action, turn, history, revealSpeed, hydrated]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -128,10 +149,43 @@ export default function GameClient({
   }, [showOverlay]);
 
   useEffect(() => {
-    if (!streaming) return;
     narrationBoxRef.current?.scrollTo({ top: narrationBoxRef.current.scrollHeight, behavior: "smooth" });
     overlayNarrationRef.current?.scrollTo({ top: overlayNarrationRef.current.scrollHeight, behavior: "smooth" });
-  }, [streamedNarration, streaming]);
+  }, [revealedSentences]);
+
+  useEffect(() => {
+    sentenceQueueRef.current = pendingSentences;
+  }, [pendingSentences]);
+
+  useEffect(() => {
+    if (!showOverlay) return;
+    if (revealedSentences.length === 0 && sentenceQueueRef.current.length === 0) return;
+    if (revealTimerRef.current) return;
+
+    const tick = () => {
+      const next = sentenceQueueRef.current[0];
+      if (!next) {
+        revealTimerRef.current = null;
+        return;
+      }
+
+      setRevealedSentences((prev) => [
+        ...prev,
+        { id: `${Date.now()}-${prev.length}`, text: next },
+      ]);
+      setPendingSentences((prev) => prev.slice(1));
+      revealTimerRef.current = null;
+    };
+
+    revealTimerRef.current = setTimeout(tick, revealSpeed);
+
+    return () => {
+      if (revealTimerRef.current) {
+        clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, [pendingSentences, revealSpeed, showOverlay, revealedSentences.length]);
 
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
@@ -151,6 +205,13 @@ export default function GameClient({
     setStreamedNarration("");
     setStreamedMeta(null);
     setShowOverlay(false);
+    setRevealedSentences([]);
+    setPendingSentences([]);
+    sentenceQueueRef.current = [];
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
       window.speechSynthesis?.cancel();
@@ -168,6 +229,13 @@ export default function GameClient({
     setError(null);
     setStreamedNarration("");
     setStreamedMeta(null);
+    setRevealedSentences([]);
+    setPendingSentences([]);
+    sentenceQueueRef.current = [];
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
 
     try {
       const response = await fetch("/api/turn", {
@@ -192,6 +260,7 @@ export default function GameClient({
       const decoder = new TextDecoder();
       let buffer = "";
       let finalTurn: TurnResponse | null = null;
+      let sentenceBuffer = "";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -213,11 +282,25 @@ export default function GameClient({
           if (eventName === "meta") {
             setStreamedMeta(payload as StreamingMeta);
           } else if (eventName === "chunk") {
-            setStreamedNarration((prev) => prev + String(payload.text ?? ""));
+            const chunkText = String(payload.text ?? "");
+            setStreamedNarration((prev) => prev + chunkText);
+            sentenceBuffer += chunkText;
+            const parts = splitIntoSentences(sentenceBuffer);
+            const endsCleanly = /[.!?]\s*$/.test(sentenceBuffer);
+            const complete = endsCleanly ? parts : parts.slice(0, -1);
+            const remainder = endsCleanly ? "" : parts.at(-1) ?? sentenceBuffer;
+            if (complete.length > 0) {
+              setPendingSentences((prev) => [...prev, ...complete]);
+              sentenceBuffer = remainder;
+            }
           } else if (eventName === "done") {
             finalTurn = payload as TurnResponse;
           }
         }
+      }
+
+      if (sentenceBuffer.trim()) {
+        setPendingSentences((prev) => [...prev, sentenceBuffer.trim()]);
       }
 
       if (!finalTurn) {
@@ -248,6 +331,7 @@ export default function GameClient({
   const activeChoices = streaming ? streamedMeta?.suggestedChoices ?? [] : turn.suggestedChoices;
   const activeVoiceMode = streaming ? "streaming" : turn.ttsMode;
   const shouldShowOverlay = showOverlay || streaming;
+  const hiddenSentenceCount = splitIntoSentences(activeNarration).length - revealedSentences.length;
 
   return (
     <>
@@ -353,6 +437,25 @@ export default function GameClient({
             />
           </div>
 
+          <div>
+            <label htmlFor="reveal-speed" className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">
+              Fade speed
+            </label>
+            <div className="mt-3 flex items-center gap-4">
+              <input
+                id="reveal-speed"
+                type="range"
+                min="350"
+                max="2200"
+                step="50"
+                value={revealSpeed}
+                onChange={(e) => setRevealSpeed(Number(e.target.value))}
+                className="w-full accent-emerald-300"
+              />
+              <span className="min-w-20 text-sm text-emerald-100/75">{(revealSpeed / 1000).toFixed(2)}s</span>
+            </div>
+          </div>
+
           {error ? <p className="text-sm text-rose-300">{error}</p> : null}
           {!hydrated ? <p className="text-sm text-emerald-200/60">Restoring saved browser session...</p> : null}
 
@@ -412,13 +515,23 @@ export default function GameClient({
               </button>
             </div>
 
-            <div
-              ref={overlayNarrationRef}
-              className="flex-1 overflow-y-auto px-5 py-5"
-            >
-              <p className={`whitespace-pre-wrap text-lg leading-9 text-emerald-50 transition-all duration-500 ${streaming ? "opacity-95" : "opacity-100"}`}>
-                {activeNarration}
-              </p>
+            <div ref={overlayNarrationRef} className="flex-1 overflow-y-auto px-5 py-5">
+              <div className="space-y-5">
+                {revealedSentences.map((sentence) => (
+                  <p
+                    key={sentence.id}
+                    className="animate-[fadeIn_900ms_ease_forwards] whitespace-pre-wrap text-lg leading-9 text-emerald-50 opacity-0"
+                  >
+                    {sentence.text}
+                  </p>
+                ))}
+                {streaming && hiddenSentenceCount > 0 ? (
+                  <div className="flex items-center gap-2 text-sm uppercase tracking-[0.2em] text-emerald-200/55">
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+                    More text incoming
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <div className="border-t border-emerald-200/10 px-5 py-4">
@@ -428,6 +541,9 @@ export default function GameClient({
                 </span>
                 <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
                   Voice mode: {activeVoiceMode}
+                </span>
+                <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
+                  Fade speed: {(revealSpeed / 1000).toFixed(2)}s
                 </span>
                 {streaming ? (
                   <span className="rounded-full border border-emerald-300/20 bg-emerald-300/15 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-50">
