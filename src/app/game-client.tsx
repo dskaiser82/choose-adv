@@ -40,9 +40,8 @@ type StreamingMeta = {
 
 const STORAGE_KEY = "choose-adventure-mvp-state";
 const DEFAULT_REVEAL_SPEED = 1600;
-const DEFAULT_CHAR_SPEED = 26;
 const HOLD_TIME_MS = 900;
-const CLEAR_TIME_MS = 400;
+const CLEAR_TIME_MS = 250;
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   return {
@@ -94,23 +93,15 @@ export default function GameClient({
   const [history, setHistory] = useState<TurnHistoryEntry[]>([]);
   const [streamedMeta, setStreamedMeta] = useState<StreamingMeta | null>(null);
   const [revealSpeed, setRevealSpeed] = useState(DEFAULT_REVEAL_SPEED);
-  const [storyChunks, setStoryChunks] = useState<string[]>([]);
-  const [currentCardText, setCurrentCardText] = useState("");
+  const [storyQueue, setStoryQueue] = useState<string[]>([]);
   const [displayedCardText, setDisplayedCardText] = useState("");
   const [storyModeDone, setStoryModeDone] = useState(false);
   const [isCardActive, setIsCardActive] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
-  const overlayStateRef = useRef<{
-    running: boolean;
-    queue: string[];
-    currentTimeout?: ReturnType<typeof setTimeout>;
-    phase: number;
-  }>({
-    running: false,
-    queue: [],
-    phase: 0,
-  });
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loopTokenRef = useRef(0);
+  const processingRef = useRef(false);
 
   const context = useMemo(() => {
     return [
@@ -167,71 +158,71 @@ export default function GameClient({
     narrationBoxRef.current?.scrollTo({ top: narrationBoxRef.current.scrollHeight, behavior: "smooth" });
   }, [turn.narration]);
 
-  function clearOverlayTimer() {
-    if (overlayStateRef.current.currentTimeout) {
-      clearTimeout(overlayStateRef.current.currentTimeout);
-      overlayStateRef.current.currentTimeout = undefined;
+  function clearTypingTimer() {
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
     }
   }
 
-  function queueStoryChunks(newChunks: string[]) {
-    if (newChunks.length === 0) return;
-    overlayStateRef.current.queue.push(...newChunks);
-    setStoryChunks([...overlayStateRef.current.queue]);
-    if (showOverlay) {
-      startStoryLoop();
-    }
+  function sleep(ms: number) {
+    return new Promise((resolve) => {
+      typingTimerRef.current = setTimeout(resolve, ms);
+    });
   }
 
-  function startStoryLoop() {
-    if (overlayStateRef.current.running) return;
-    if (!showOverlay) return;
-    if (overlayStateRef.current.queue.length === 0) {
-      if (!streaming) setStoryModeDone(true);
-      return;
-    }
+  async function runStoryLoop(token: number) {
+    if (processingRef.current) return;
+    processingRef.current = true;
 
-    const nextCard = overlayStateRef.current.queue.shift();
-    setStoryChunks([...overlayStateRef.current.queue]);
-    if (!nextCard) return;
+    try {
+      while (loopTokenRef.current === token && showOverlay) {
+        let nextCard = "";
+        setStoryQueue((prev) => {
+          nextCard = prev[0] ?? "";
+          return prev.length > 0 ? prev.slice(1) : prev;
+        });
 
-    overlayStateRef.current.running = true;
-    overlayStateRef.current.phase += 1;
-    const thisPhase = overlayStateRef.current.phase;
-    setStoryModeDone(false);
-    setIsCardActive(true);
-    setCurrentCardText(nextCard);
-    setDisplayedCardText("");
+        if (!nextCard) {
+          if (!streaming) {
+            setStoryModeDone(true);
+          }
+          break;
+        }
 
-    let index = 0;
-    const charDelay = Math.max(10, Math.round(DEFAULT_CHAR_SPEED * (revealSpeed / DEFAULT_REVEAL_SPEED)));
+        setStoryModeDone(false);
+        setDisplayedCardText("");
+        setIsCardActive(true);
 
-    const typeNext = () => {
-      if (overlayStateRef.current.phase !== thisPhase) return;
+        const charDelay = Math.max(12, Math.round(22 * (revealSpeed / DEFAULT_REVEAL_SPEED)));
+        for (let i = 1; i <= nextCard.length; i++) {
+          if (loopTokenRef.current !== token || !showOverlay) return;
+          setDisplayedCardText(nextCard.slice(0, i));
+          await sleep(charDelay);
+        }
 
-      if (index < nextCard.length) {
-        index += 1;
-        setDisplayedCardText(nextCard.slice(0, index));
-        overlayStateRef.current.currentTimeout = setTimeout(typeNext, charDelay);
-        return;
-      }
+        if (loopTokenRef.current !== token || !showOverlay) return;
+        await sleep(revealSpeed + HOLD_TIME_MS);
+        if (loopTokenRef.current !== token || !showOverlay) return;
 
-      overlayStateRef.current.currentTimeout = setTimeout(() => {
-        if (overlayStateRef.current.phase !== thisPhase) return;
         setIsCardActive(false);
-        overlayStateRef.current.currentTimeout = setTimeout(() => {
-          if (overlayStateRef.current.phase !== thisPhase) return;
-          setDisplayedCardText("");
-          setCurrentCardText("");
-          overlayStateRef.current.running = false;
-          clearOverlayTimer();
-          startStoryLoop();
-        }, CLEAR_TIME_MS);
-      }, revealSpeed + HOLD_TIME_MS);
-    };
-
-    typeNext();
+        await sleep(CLEAR_TIME_MS);
+        if (loopTokenRef.current !== token || !showOverlay) return;
+        setDisplayedCardText("");
+      }
+    } finally {
+      processingRef.current = false;
+      clearTypingTimer();
+    }
   }
+
+  useEffect(() => {
+    if (!showOverlay) return;
+    if (storyQueue.length === 0) return;
+    if (processingRef.current) return;
+    const token = loopTokenRef.current;
+    void runStoryLoop(token);
+  }, [storyQueue, showOverlay, revealSpeed, streaming]);
 
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
@@ -244,12 +235,10 @@ export default function GameClient({
   }
 
   function resetStoryMode() {
-    clearOverlayTimer();
-    overlayStateRef.current.running = false;
-    overlayStateRef.current.queue = [];
-    overlayStateRef.current.phase += 1;
-    setStoryChunks([]);
-    setCurrentCardText("");
+    loopTokenRef.current += 1;
+    processingRef.current = false;
+    clearTypingTimer();
+    setStoryQueue([]);
     setDisplayedCardText("");
     setStoryModeDone(false);
     setIsCardActive(false);
@@ -333,7 +322,7 @@ export default function GameClient({
             const complete = endsCleanly ? parts : parts.slice(0, -1);
             const remainder = endsCleanly ? "" : parts.at(-1) ?? sentenceBuffer;
             if (complete.length > 0) {
-              queueStoryChunks(groupSentences(complete));
+              setStoryQueue((prev) => [...prev, ...groupSentences(complete)]);
               sentenceBuffer = remainder;
             }
           } else if (eventName === "done") {
@@ -343,7 +332,7 @@ export default function GameClient({
       }
 
       if (sentenceBuffer.trim()) {
-        queueStoryChunks(groupSentences([sentenceBuffer.trim()]));
+        setStoryQueue((prev) => [...prev, ...groupSentences([sentenceBuffer.trim()])]);
       }
 
       if (!finalTurn) {
@@ -354,7 +343,6 @@ export default function GameClient({
       setHistory((prev) => [...prev, { action: submittedAction, response: finalTurn, createdAt: Date.now() }]);
       setAction("");
       setStreaming(false);
-      startStoryLoop();
 
       if (finalTurn.audioUrl && audioRef.current) {
         audioRef.current.src = finalTurn.audioUrl;
@@ -543,7 +531,7 @@ export default function GameClient({
             <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
               {displayedCardText ? (
                 <p
-                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-opacity duration-300 md:text-5xl ${isCardActive ? "opacity-100" : "opacity-0"}`}
+                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-opacity duration-200 md:text-5xl ${isCardActive ? "opacity-100" : "opacity-0"}`}
                 >
                   {displayedCardText}
                   <span className="animate-pulse">▌</span>
