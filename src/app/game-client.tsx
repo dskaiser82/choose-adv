@@ -34,6 +34,15 @@ type PersistedGameState = {
 
 type AudioPlaybackState = "idle" | "loading" | "ready" | "playing" | "blocked" | "error";
 
+type AudioElementDebug = {
+  readyState: number;
+  networkState: number;
+  duration: number | null;
+  currentSrc: string;
+  paused: boolean;
+  ended: boolean;
+};
+
 type GameClientProps = {
   worldName: string;
   playerName: string;
@@ -131,6 +140,7 @@ export default function GameClient({
   const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
   const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>("idle");
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
+  const [audioElementDebug, setAudioElementDebug] = useState<AudioElementDebug | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -237,6 +247,18 @@ export default function GameClient({
     };
   }, [showOverlay, storyCards, cardIndex]);
 
+  function refreshAudioDebug() {
+    if (!audioRef.current) return;
+    setAudioElementDebug({
+      readyState: audioRef.current.readyState,
+      networkState: audioRef.current.networkState,
+      duration: Number.isFinite(audioRef.current.duration) ? audioRef.current.duration : null,
+      currentSrc: audioRef.current.currentSrc,
+      paused: audioRef.current.paused,
+      ended: audioRef.current.ended,
+    });
+  }
+
   function resetStoryMode() {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -258,6 +280,7 @@ export default function GameClient({
     setShowOverlay(false);
     setAudioPlaybackState("idle");
     setAudioStatusMessage(null);
+    setAudioElementDebug(null);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.removeAttribute("src");
@@ -313,12 +336,16 @@ export default function GameClient({
   async function playCurrentAudio() {
     if (!audioRef.current || !turn.audioUrl) return;
     setAudioStatusMessage(null);
+    refreshAudioDebug();
     try {
       await audioRef.current.play();
       setAudioPlaybackState("playing");
+      setAudioStatusMessage("Audio playing");
     } catch (err) {
       setAudioPlaybackState("blocked");
       setAudioStatusMessage(err instanceof Error ? err.message : "Browser blocked audio playback.");
+    } finally {
+      refreshAudioDebug();
     }
   }
 
@@ -404,7 +431,7 @@ export default function GameClient({
         const audioBlob = await ttsResponse.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         setAudioPlaybackState("ready");
-        setAudioStatusMessage("Audio ready");
+        setAudioStatusMessage(`Audio ready (${Math.round(audioBlob.size / 1024)} KB)`);
         playbackTurn = {
           ...finalTurn,
           usedTts: true,
@@ -443,6 +470,8 @@ export default function GameClient({
 
       if (playbackTurn.audioUrl && audioRef.current) {
         audioRef.current.src = playbackTurn.audioUrl;
+        audioRef.current.load();
+        refreshAudioDebug();
         try {
           await audioRef.current.play();
           setAudioPlaybackState("playing");
@@ -450,6 +479,8 @@ export default function GameClient({
         } catch (err) {
           setAudioPlaybackState("blocked");
           setAudioStatusMessage(err instanceof Error ? err.message : "Tap play to start narration audio.");
+        } finally {
+          refreshAudioDebug();
         }
       }
     } catch (err) {
@@ -535,6 +566,11 @@ export default function GameClient({
             <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-sky-100/85">
               Audio: {audioPlaybackState}
             </span>
+            {audioElementDebug ? (
+              <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-[10px] tracking-[0.12em] text-sky-100/85">
+                rs {audioElementDebug.readyState} · ns {audioElementDebug.networkState} · paused {audioElementDebug.paused ? "yes" : "no"}
+              </span>
+            ) : null}
           </div>
 
           <div className="mt-6">
@@ -606,9 +642,9 @@ export default function GameClient({
               <button
                 type="button"
                 onClick={playCurrentAudio}
-                className="rounded-full border border-sky-300/20 bg-sky-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-sky-100 transition hover:bg-sky-200/15"
+                className="rounded-full border border-sky-200/30 bg-sky-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#08131a] shadow-[0_0_24px_rgba(125,211,252,0.35)] transition hover:bg-sky-200"
               >
-                Play narration
+                ▶ Play narration audio
               </button>
             ) : null}
             <p className="text-sm text-emerald-100/65">
@@ -639,7 +675,43 @@ export default function GameClient({
           </div>
         ) : null}
 
-        <audio ref={audioRef} controls preload="auto" className="mt-4 w-full max-w-xl" />
+        <div className="mt-4 max-w-xl rounded-2xl border border-sky-300/20 bg-sky-200/5 p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/75">Narration audio</p>
+          <audio
+            ref={audioRef}
+            controls
+            preload="auto"
+            className="mt-3 w-full"
+            onLoadedMetadata={() => {
+              setAudioPlaybackState("ready");
+              setAudioStatusMessage((current) => current ?? "Audio metadata loaded");
+              refreshAudioDebug();
+            }}
+            onCanPlay={() => {
+              setAudioPlaybackState((current) => (current === "playing" ? current : "ready"));
+              refreshAudioDebug();
+            }}
+            onPlay={() => {
+              setAudioPlaybackState("playing");
+              setAudioStatusMessage("Audio playing");
+              refreshAudioDebug();
+            }}
+            onPause={() => {
+              setAudioPlaybackState((current) => (current === "error" ? current : "ready"));
+              refreshAudioDebug();
+            }}
+            onEnded={() => {
+              setAudioPlaybackState("ready");
+              setAudioStatusMessage("Audio finished");
+              refreshAudioDebug();
+            }}
+            onError={() => {
+              setAudioPlaybackState("error");
+              setAudioStatusMessage("Audio element failed to load or play");
+              refreshAudioDebug();
+            }}
+          />
+        </div>
       </section>
 
       {shouldShowOverlay ? (
