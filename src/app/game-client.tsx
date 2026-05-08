@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type TurnResponse = {
   narration: string;
@@ -11,6 +11,18 @@ type TurnResponse = {
   ttsMode: "piper" | "browser" | "none";
 };
 
+type TurnHistoryEntry = {
+  action: string;
+  response: TurnResponse;
+  createdAt: number;
+};
+
+type PersistedGameState = {
+  actionDraft: string;
+  currentTurn: TurnResponse;
+  history: TurnHistoryEntry[];
+};
+
 type GameClientProps = {
   worldName: string;
   playerName: string;
@@ -19,17 +31,10 @@ type GameClientProps = {
   summaryText: string;
 };
 
-export default function GameClient({
-  worldName,
-  playerName,
-  playerRegion,
-  playerRole,
-  summaryText,
-}: GameClientProps) {
-  const [action, setAction] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [turn, setTurn] = useState<TurnResponse>({
+const STORAGE_KEY = "choose-adventure-mvp-state";
+
+function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
+  return {
     sceneTitle: `${worldName} Test Run`,
     narration:
       `${playerName} stands at the edge of a new story in ${worldName}. ` +
@@ -41,7 +46,23 @@ export default function GameClient({
     ],
     usedTts: false,
     ttsMode: "none",
-  });
+  };
+}
+
+export default function GameClient({
+  worldName,
+  playerName,
+  playerRegion,
+  playerRole,
+  summaryText,
+}: GameClientProps) {
+  const initialTurn = useMemo(() => buildInitialTurn(worldName, playerName), [worldName, playerName]);
+  const [action, setAction] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [turn, setTurn] = useState<TurnResponse>(initialTurn);
+  const [history, setHistory] = useState<TurnHistoryEntry[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const context = useMemo(() => {
@@ -54,6 +75,37 @@ export default function GameClient({
       .join(" • ");
   }, [playerName, playerRegion, playerRole, worldName]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        setHydrated(true);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as Partial<PersistedGameState>;
+      if (parsed.actionDraft) setAction(parsed.actionDraft);
+      if (parsed.currentTurn) setTurn(parsed.currentTurn);
+      if (Array.isArray(parsed.history)) setHistory(parsed.history);
+    } catch {
+      // Ignore bad local state and continue with defaults.
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    const payload: PersistedGameState = {
+      actionDraft: action,
+      currentTurn: turn,
+      history,
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }, [action, turn, history, hydrated]);
+
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
     window.speechSynthesis.cancel();
@@ -64,10 +116,22 @@ export default function GameClient({
     return true;
   }
 
+  function resetSession() {
+    setAction("");
+    setError(null);
+    setHistory([]);
+    setTurn(initialTurn);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(STORAGE_KEY);
+      window.speechSynthesis?.cancel();
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!action.trim()) return;
 
+    const submittedAction = action.trim();
     setLoading(true);
     setError(null);
 
@@ -76,7 +140,7 @@ export default function GameClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action,
+          action: submittedAction,
           playerName,
           worldName,
           playerRegion,
@@ -92,6 +156,7 @@ export default function GameClient({
 
       const data = (await response.json()) as TurnResponse;
       setTurn(data);
+      setHistory((prev) => [...prev, { action: submittedAction, response: data, createdAt: Date.now() }]);
       setAction("");
 
       if (data.audioUrl && audioRef.current) {
@@ -118,8 +183,22 @@ export default function GameClient({
             it falls back to browser speech.
           </p>
         </div>
-        <div className="rounded-2xl border border-emerald-200/15 bg-emerald-50/5 px-4 py-3 text-xs uppercase tracking-[0.16em] text-emerald-100/75">
-          {context}
+        <div className="flex flex-col items-start gap-3 md:items-end">
+          <div className="rounded-2xl border border-emerald-200/15 bg-emerald-50/5 px-4 py-3 text-xs uppercase tracking-[0.16em] text-emerald-100/75">
+            {context}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
+              Saved turns: {history.length}
+            </span>
+            <button
+              type="button"
+              onClick={resetSession}
+              className="rounded-full border border-rose-300/20 bg-rose-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-rose-100 transition hover:bg-rose-200/15"
+            >
+              Reset session
+            </button>
+          </div>
         </div>
       </div>
 
@@ -131,6 +210,9 @@ export default function GameClient({
         <div className="mt-5 flex flex-wrap gap-2">
           <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
             Voice mode: {turn.ttsMode}
+          </span>
+          <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
+            Persistence: local browser storage
           </span>
           <button
             type="button"
@@ -173,6 +255,7 @@ export default function GameClient({
         </div>
 
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+        {!hydrated ? <p className="text-sm text-emerald-200/60">Restoring saved browser session...</p> : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -182,9 +265,33 @@ export default function GameClient({
           >
             {loading ? "Narrating..." : "Send action"}
           </button>
-          <p className="text-sm text-emerald-100/65">Summary seed: {summaryText.slice(0, 120)}{summaryText.length > 120 ? "..." : ""}</p>
+          <p className="text-sm text-emerald-100/65">
+            Summary seed: {summaryText.slice(0, 120)}
+            {summaryText.length > 120 ? "..." : ""}
+          </p>
         </div>
       </form>
+
+      {history.length > 0 ? (
+        <div className="mt-6 rounded-2xl border border-emerald-200/10 bg-black/20 p-5">
+          <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Recent session history</p>
+          <div className="mt-4 space-y-4">
+            {history.slice().reverse().map((entry) => (
+              <article
+                key={`${entry.createdAt}-${entry.action}`}
+                className="rounded-2xl border border-emerald-200/10 bg-emerald-50/5 p-4"
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/55">Your action</p>
+                <p className="mt-2 text-sm leading-7 text-emerald-50">{entry.action}</p>
+                <p className="mt-4 text-[11px] uppercase tracking-[0.18em] text-emerald-200/55">Narrator response</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-emerald-100/90">
+                  {entry.response.narration}
+                </p>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <audio ref={audioRef} className="hidden" />
     </section>
