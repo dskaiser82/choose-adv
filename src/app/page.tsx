@@ -45,7 +45,7 @@ async function readSummary(): Promise<string> {
 
 export default async function Home() {
   const [player, world, log, summary] = await Promise.all([
-    readStateFile<PlayerState>("player.json"),
+    readStateFile<PlayerState>("characters.json"),
     readStateFile<WorldState>("world.json"),
     readStateFile<LogEntry[]>("log.json"),
     readSummary(),
