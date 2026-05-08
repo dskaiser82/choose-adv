@@ -33,15 +33,10 @@ type GameClientProps = {
   releaseVersion: string;
 };
 
-type StreamingMeta = {
-  sceneTitle: string;
-  suggestedChoices: string[];
-};
-
 const STORAGE_KEY = "choose-adventure-mvp-state";
-const DEFAULT_REVEAL_SPEED = 1600;
-const HOLD_TIME_MS = 900;
-const CLEAR_TIME_MS = 250;
+const DEFAULT_REVEAL_SPEED = 1500;
+const HOLD_TIME_MS = 1100;
+const CLEAR_TIME_MS = 350;
 
 function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   return {
@@ -59,19 +54,20 @@ function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
   };
 }
 
-function splitIntoSentences(text: string) {
+export function splitIntoSentences(text: string) {
   return text
     .split(/(?<=[.!?])\s+/)
     .map((part) => part.trim())
     .filter(Boolean);
 }
 
-function groupSentences(sentences: string[]) {
-  const groups: string[] = [];
+export function buildStoryCards(text: string) {
+  const sentences = splitIntoSentences(text);
+  const cards: string[] = [];
   for (let i = 0; i < sentences.length; i += 2) {
-    groups.push(sentences.slice(i, i + 2).join(" "));
+    cards.push(sentences.slice(i, i + 2).join(" "));
   }
-  return groups;
+  return cards.filter(Boolean);
 }
 
 export default function GameClient({
@@ -85,23 +81,22 @@ export default function GameClient({
   const initialTurn = useMemo(() => buildInitialTurn(worldName, playerName), [worldName, playerName]);
   const [action, setAction] = useState("");
   const [loading, setLoading] = useState(false);
-  const [streaming, setStreaming] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [turn, setTurn] = useState<TurnResponse>(initialTurn);
   const [history, setHistory] = useState<TurnHistoryEntry[]>([]);
-  const [streamedMeta, setStreamedMeta] = useState<StreamingMeta | null>(null);
   const [revealSpeed, setRevealSpeed] = useState(DEFAULT_REVEAL_SPEED);
-  const [storyQueue, setStoryQueue] = useState<string[]>([]);
+  const [storyCards, setStoryCards] = useState<string[]>([]);
+  const [cardIndex, setCardIndex] = useState(0);
   const [displayedCardText, setDisplayedCardText] = useState("");
+  const [isCardVisible, setIsCardVisible] = useState(false);
+  const [isTypingCard, setIsTypingCard] = useState(false);
   const [storyModeDone, setStoryModeDone] = useState(false);
-  const [isCardActive, setIsCardActive] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loopTokenRef = useRef(0);
-  const processingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runIdRef = useRef(0);
 
   const context = useMemo(() => {
     return [
@@ -158,71 +153,58 @@ export default function GameClient({
     narrationBoxRef.current?.scrollTo({ top: narrationBoxRef.current.scrollHeight, behavior: "smooth" });
   }, [turn.narration]);
 
-  function clearTypingTimer() {
-    if (typingTimerRef.current) {
-      clearTimeout(typingTimerRef.current);
-      typingTimerRef.current = null;
-    }
-  }
-
-  function sleep(ms: number) {
-    return new Promise((resolve) => {
-      typingTimerRef.current = setTimeout(resolve, ms);
-    });
-  }
-
-  async function runStoryLoop(token: number) {
-    if (processingRef.current) return;
-    processingRef.current = true;
-
-    try {
-      while (loopTokenRef.current === token && showOverlay) {
-        let nextCard = "";
-        setStoryQueue((prev) => {
-          nextCard = prev[0] ?? "";
-          return prev.length > 0 ? prev.slice(1) : prev;
-        });
-
-        if (!nextCard) {
-          if (!streaming) {
-            setStoryModeDone(true);
-          }
-          break;
-        }
-
-        setStoryModeDone(false);
-        setDisplayedCardText("");
-        setIsCardActive(true);
-
-        const charDelay = Math.max(12, Math.round(22 * (revealSpeed / DEFAULT_REVEAL_SPEED)));
-        for (let i = 1; i <= nextCard.length; i++) {
-          if (loopTokenRef.current !== token || !showOverlay) return;
-          setDisplayedCardText(nextCard.slice(0, i));
-          await sleep(charDelay);
-        }
-
-        if (loopTokenRef.current !== token || !showOverlay) return;
-        await sleep(revealSpeed + HOLD_TIME_MS);
-        if (loopTokenRef.current !== token || !showOverlay) return;
-
-        setIsCardActive(false);
-        await sleep(CLEAR_TIME_MS);
-        if (loopTokenRef.current !== token || !showOverlay) return;
-        setDisplayedCardText("");
-      }
-    } finally {
-      processingRef.current = false;
-      clearTypingTimer();
-    }
-  }
-
   useEffect(() => {
     if (!showOverlay) return;
-    if (storyQueue.length === 0) return;
-    if (processingRef.current) return;
-    const token = loopTokenRef.current;
-    void runStoryLoop(token);
-  }, [storyQueue, showOverlay, revealSpeed, streaming]);
+    if (!storyCards.length) return;
+    if (cardIndex >= storyCards.length) {
+      setStoryModeDone(true);
+      setIsTypingCard(false);
+      setIsCardVisible(false);
+      return;
+    }
+
+    runIdRef.current += 1;
+    const runId = runIdRef.current;
+    const currentCard = storyCards[cardIndex];
+    const charDelay = Math.max(14, Math.round(24 * (revealSpeed / DEFAULT_REVEAL_SPEED)));
+
+    setDisplayedCardText("");
+    setIsCardVisible(true);
+    setIsTypingCard(true);
+    setStoryModeDone(false);
+
+    let index = 0;
+
+    function typeNext() {
+      if (runId !== runIdRef.current) return;
+      index += 1;
+      setDisplayedCardText(currentCard.slice(0, index));
+      if (index < currentCard.length) {
+        timerRef.current = setTimeout(typeNext, charDelay);
+        return;
+      }
+
+      setIsTypingCard(false);
+      timerRef.current = setTimeout(() => {
+        if (runId !== runIdRef.current) return;
+        setIsCardVisible(false);
+        timerRef.current = setTimeout(() => {
+          if (runId !== runIdRef.current) return;
+          setDisplayedCardText("");
+          setCardIndex((prev) => prev + 1);
+        }, CLEAR_TIME_MS);
+      }, revealSpeed + HOLD_TIME_MS);
+    }
+
+    timerRef.current = setTimeout(typeNext, charDelay);
+
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [showOverlay, storyCards, cardIndex, revealSpeed]);
 
   async function speakWithBrowser(text: string) {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
@@ -235,13 +217,17 @@ export default function GameClient({
   }
 
   function resetStoryMode() {
-    loopTokenRef.current += 1;
-    processingRef.current = false;
-    clearTypingTimer();
-    setStoryQueue([]);
+    runIdRef.current += 1;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setStoryCards([]);
+    setCardIndex(0);
     setDisplayedCardText("");
+    setIsCardVisible(false);
+    setIsTypingCard(false);
     setStoryModeDone(false);
-    setIsCardActive(false);
   }
 
   function resetSession() {
@@ -249,7 +235,6 @@ export default function GameClient({
     setError(null);
     setHistory([]);
     setTurn(initialTurn);
-    setStreamedMeta(null);
     setShowOverlay(false);
     resetStoryMode();
     if (typeof window !== "undefined") {
@@ -264,10 +249,8 @@ export default function GameClient({
 
     const submittedAction = action.trim();
     setLoading(true);
-    setStreaming(true);
     setShowOverlay(true);
     setError(null);
-    setStreamedMeta(null);
     resetStoryMode();
 
     try {
@@ -293,56 +276,42 @@ export default function GameClient({
       const decoder = new TextDecoder();
       let buffer = "";
       let finalTurn: TurnResponse | null = null;
-      let sentenceBuffer = "";
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-
-        for (const rawEvent of events) {
-          const lines = rawEvent.split("\n");
-          const eventLine = lines.find((line) => line.startsWith("event: "));
-          const dataLine = lines.find((line) => line.startsWith("data: "));
-          if (!eventLine || !dataLine) continue;
-
-          const eventName = eventLine.slice(7).trim();
-          const payload = JSON.parse(dataLine.slice(6));
-
-          if (eventName === "meta") {
-            setStreamedMeta(payload as StreamingMeta);
-          } else if (eventName === "chunk") {
-            const chunkText = String(payload.text ?? "");
-            sentenceBuffer += chunkText;
-            const parts = splitIntoSentences(sentenceBuffer);
-            const endsCleanly = /[.!?]\s*$/.test(sentenceBuffer);
-            const complete = endsCleanly ? parts : parts.slice(0, -1);
-            const remainder = endsCleanly ? "" : parts.at(-1) ?? sentenceBuffer;
-            if (complete.length > 0) {
-              setStoryQueue((prev) => [...prev, ...groupSentences(complete)]);
-              sentenceBuffer = remainder;
-            }
-          } else if (eventName === "done") {
-            finalTurn = payload as TurnResponse;
-          }
-        }
       }
 
-      if (sentenceBuffer.trim()) {
-        setStoryQueue((prev) => [...prev, ...groupSentences([sentenceBuffer.trim()])]);
+      const events = buffer.split("\n\n").filter(Boolean);
+      let fullNarration = "";
+
+      for (const rawEvent of events) {
+        const lines = rawEvent.split("\n");
+        const eventLine = lines.find((line) => line.startsWith("event: "));
+        const dataLine = lines.find((line) => line.startsWith("data: "));
+        if (!eventLine || !dataLine) continue;
+        const eventName = eventLine.slice(7).trim();
+        const payload = JSON.parse(dataLine.slice(6));
+
+        if (eventName === "meta") {
+          // Metadata is available in the final turn payload if we need it later.
+        } else if (eventName === "chunk") {
+          fullNarration += String(payload.text ?? "");
+        } else if (eventName === "done") {
+          finalTurn = payload as TurnResponse;
+        }
       }
 
       if (!finalTurn) {
         throw new Error("Stream completed without final turn data.");
       }
 
+      const cards = buildStoryCards(fullNarration || finalTurn.narration);
+      setStoryCards(cards);
       setTurn(finalTurn);
       setHistory((prev) => [...prev, { action: submittedAction, response: finalTurn, createdAt: Date.now() }]);
       setAction("");
-      setStreaming(false);
 
       if (finalTurn.audioUrl && audioRef.current) {
         audioRef.current.src = finalTurn.audioUrl;
@@ -352,13 +321,13 @@ export default function GameClient({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
-      setStreaming(false);
+      setShowOverlay(false);
     } finally {
       setLoading(false);
     }
   }
 
-  const shouldShowOverlay = showOverlay || streaming;
+  const shouldShowOverlay = showOverlay;
 
   return (
     <>
@@ -368,8 +337,8 @@ export default function GameClient({
             <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/70">Playable MVP</p>
             <h2 className="mt-2 text-3xl font-semibold text-emerald-50">Narrator Loop Test</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-emerald-100/75">
-              Freeform input in, narrated response out. Now with live streaming text for a more fluid feel. If Piper is
-              installed on the host, the site can use it. If not, it falls back to browser speech.
+              Freeform input in, narrated response out. If Piper is installed on the host, the site can use it. If not,
+              it falls back to browser speech.
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 md:items-end">
@@ -484,7 +453,7 @@ export default function GameClient({
               disabled={loading}
               className="rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#0b1512] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? (streaming ? "Streaming..." : "Narrating...") : "Send action"}
+              {loading ? "Building scene..." : "Send action"}
             </button>
             <p className="text-sm text-emerald-100/65">
               Summary seed: {summaryText.slice(0, 120)}
@@ -531,15 +500,15 @@ export default function GameClient({
             <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
               {displayedCardText ? (
                 <p
-                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-opacity duration-200 md:text-5xl ${isCardActive ? "opacity-100" : "opacity-0"}`}
+                  className={`max-w-3xl whitespace-pre-wrap text-3xl leading-[1.55] text-white transition-opacity duration-200 md:text-5xl ${isCardVisible ? "opacity-100" : "opacity-0"}`}
                 >
                   {displayedCardText}
-                  <span className="animate-pulse">▌</span>
+                  {isTypingCard ? <span className="animate-pulse">▌</span> : null}
                 </p>
-              ) : streaming ? (
+              ) : loading ? (
                 <div className="flex items-center gap-3 text-white/60">
                   <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-white/70" />
-                  <span className="text-sm uppercase tracking-[0.3em]">Preparing next card</span>
+                  <span className="text-sm uppercase tracking-[0.3em]">Building scene</span>
                 </div>
               ) : storyModeDone ? (
                 <div className="space-y-4">
@@ -559,11 +528,9 @@ export default function GameClient({
             <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
               Card speed {(revealSpeed / 1000).toFixed(1)}s
             </span>
-            {streaming ? (
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-                Typing story mode
-              </span>
-            ) : null}
+            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              Cards {cardIndex + (displayedCardText ? 1 : 0)}/{Math.max(storyCards.length, cardIndex + (displayedCardText ? 1 : 0), 1)}
+            </span>
           </div>
         </div>
       ) : null}
