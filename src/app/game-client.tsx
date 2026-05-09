@@ -363,7 +363,7 @@ export default function GameClient({
     setBridgeTestMessage("Testing bridge...");
 
     try {
-      const response = await fetch("/api/bridge-test", {
+      const response = await fetch("/api/bridge-turn-test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -376,7 +376,7 @@ export default function GameClient({
       });
 
       const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; message?: string; error?: string; received?: { source?: string } }
+        | { ok?: boolean; message?: string; error?: string; sceneTitle?: string; narration?: string }
         | null;
 
       if (!response.ok || !payload?.ok) {
@@ -384,7 +384,11 @@ export default function GameClient({
       }
 
       setBridgeTestState("success");
-      setBridgeTestMessage(`Bridge reached: ${payload.message ?? "ok"}`);
+      setBridgeTestMessage(
+        payload.sceneTitle
+          ? `Bridge turn ok: ${payload.sceneTitle}`
+          : `Bridge reached: ${payload.message ?? "ok"}`,
+      );
     } catch (err) {
       setBridgeTestState("error");
       setBridgeTestMessage(err instanceof Error ? err.message : "Bridge test failed.");
