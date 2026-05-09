@@ -240,6 +240,19 @@ export default function GameClient({
     };
   }, [showOverlay, storyCards, cardIndex]);
 
+  useEffect(() => {
+    if (!audioRef.current) return;
+    if (!turn.audioUrl) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+      return;
+    }
+
+    audioRef.current.src = turn.audioUrl;
+    audioRef.current.load();
+  }, [turn.audioUrl]);
+
   function resetStoryMode() {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -315,10 +328,22 @@ export default function GameClient({
   }
 
   async function playCurrentAudio() {
-    if (!audioRef.current || !turn.audioUrl) return;
+    if (!turn.audioUrl) {
+      setAudioPlaybackState("error");
+      setAudioStatusMessage("No narration audio is ready yet.");
+      return;
+    }
+
+    if (!audioRef.current) {
+      setAudioPlaybackState("error");
+      setAudioStatusMessage("Audio player is not ready yet.");
+      return;
+    }
+
     setAudioPlaybackState("loading");
     setAudioStatusMessage("Preparing audio...");
     try {
+      audioRef.current.currentTime = 0;
       await audioRef.current.play();
       setAudioPlaybackState("playing");
       setAudioStatusMessage("Audio playing");
@@ -476,6 +501,34 @@ export default function GameClient({
   return (
     <>
       <section className="rounded-[30px] border border-violet-300/15 bg-[linear-gradient(180deg,rgba(14,9,28,0.96),rgba(6,5,14,0.98))] p-4 shadow-[0_0_0_1px_rgba(196,181,253,0.04),0_24px_80px_rgba(0,0,0,0.45)] md:p-6">
+        <audio
+          ref={audioRef}
+          preload="auto"
+          className="hidden"
+          onLoadedMetadata={() => {
+            setAudioPlaybackState("ready");
+            setAudioStatusMessage((current) => current ?? "Audio ready");
+          }}
+          onCanPlay={() => {
+            setAudioPlaybackState((current) => (current === "playing" ? current : "ready"));
+          }}
+          onPlay={() => {
+            setAudioPlaybackState("playing");
+            setAudioStatusMessage("Audio playing");
+          }}
+          onPause={() => {
+            setAudioPlaybackState((current) => (current === "error" ? current : "ready"));
+          }}
+          onEnded={() => {
+            setAudioPlaybackState("ready");
+            setAudioStatusMessage("Audio finished");
+          }}
+          onError={() => {
+            setAudioPlaybackState("error");
+            setAudioStatusMessage("Audio element failed to load or play");
+          }}
+        />
+
         <div className="rounded-[24px] border border-violet-200/10 bg-black/25 p-4 md:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -534,23 +587,23 @@ export default function GameClient({
                 )}
               </button>
 
-              {turn.audioUrl ? (
-                <button
-                  type="button"
-                  onClick={playCurrentAudio}
-                  disabled={audioPlaybackState === "loading"}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {audioPlaybackState === "loading" ? (
-                    <>
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-fuchsia-50/25 border-t-fuchsia-50" />
-                      Loading audio
-                    </>
-                  ) : (
-                    "▶ Play voice"
-                  )}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={playCurrentAudio}
+                disabled={!turn.audioUrl || audioPlaybackState === "loading"}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {audioPlaybackState === "loading" ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-fuchsia-50/25 border-t-fuchsia-50" />
+                    Loading audio
+                  </>
+                ) : audioPlaybackState === "playing" ? (
+                  "Playing audio"
+                ) : (
+                  "▶ Play voice"
+                )}
+              </button>
 
               <button
                 type="button"
@@ -580,10 +633,7 @@ export default function GameClient({
 
           {showStoryDetails ? (
             <div className="mt-4 animate-fadeIn rounded-[24px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5">
-              <div
-                ref={narrationBoxRef}
-                className="max-h-[52vh] overflow-y-auto"
-              >
+              <div ref={narrationBoxRef} className="max-h-[52vh] overflow-y-auto">
                 <p className="whitespace-pre-wrap text-base leading-8 text-violet-50/95 md:text-lg">{turn.narration}</p>
               </div>
             </div>
@@ -603,38 +653,7 @@ export default function GameClient({
               <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Card target ~{phoneCardWordLimit} words</span>
               <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Fade {(revealSpeed / 1000).toFixed(1)}s</span>
             </div>
-            <div className="mt-4 max-w-xl rounded-2xl border border-fuchsia-300/15 bg-fuchsia-200/5 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-fuchsia-200/75">Narration audio</p>
-              {audioStatusMessage ? <p className="mt-2 text-sm text-fuchsia-100/80">{audioStatusMessage}</p> : null}
-              <audio
-                ref={audioRef}
-                controls
-                preload="auto"
-                className="mt-3 w-full"
-                onLoadedMetadata={() => {
-                  setAudioPlaybackState("ready");
-                  setAudioStatusMessage((current) => current ?? "Audio metadata loaded");
-                }}
-                onCanPlay={() => {
-                  setAudioPlaybackState((current) => (current === "playing" ? current : "ready"));
-                }}
-                onPlay={() => {
-                  setAudioPlaybackState("playing");
-                  setAudioStatusMessage("Audio playing");
-                }}
-                onPause={() => {
-                  setAudioPlaybackState((current) => (current === "error" ? current : "ready"));
-                }}
-                onEnded={() => {
-                  setAudioPlaybackState("ready");
-                  setAudioStatusMessage("Audio finished");
-                }}
-                onError={() => {
-                  setAudioPlaybackState("error");
-                  setAudioStatusMessage("Audio element failed to load or play");
-                }}
-              />
-            </div>
+            {audioStatusMessage ? <p className="mt-4 text-sm text-fuchsia-100/80">{audioStatusMessage}</p> : null}
           </div>
         ) : null}
       </section>
@@ -676,14 +695,13 @@ export default function GameClient({
                 </div>
               ) : loading ? (
                 <div className="flex flex-col items-center gap-4 text-white/75">
-                  <div className="relative flex h-20 w-20 items-center justify-center">
-                    <span className="absolute inline-flex h-20 w-20 animate-ping rounded-full bg-violet-400/15" />
-                    <span className="absolute inline-flex h-14 w-14 animate-pulse rounded-full border border-violet-300/40 bg-violet-300/10" />
-                    <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-violet-200/30 border-t-violet-100" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm uppercase tracking-[0.34em] text-violet-100/90">Building scene</p>
-                    <p className="text-xs uppercase tracking-[0.22em] text-violet-200/45">Summoning the next passage</p>
+                  <div className="space-y-2 text-center">
+                    <p className="animate-pulse text-base font-medium uppercase tracking-[0.38em] text-violet-100/90">
+                      Building scene
+                    </p>
+                    <p className="animate-fadeIn text-xs uppercase tracking-[0.22em] text-violet-200/45">
+                      Gathering the next beat of the story...
+                    </p>
                   </div>
                 </div>
               ) : storyModeDone ? (
