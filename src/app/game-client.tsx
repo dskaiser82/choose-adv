@@ -343,10 +343,13 @@ export default function GameClient({
     setAudioPlaybackState("loading");
     setAudioStatusMessage("Preparing audio...");
     try {
-      audioRef.current.currentTime = 0;
+      if (audioRef.current.paused) {
+        audioRef.current.currentTime = 0;
+      }
       await audioRef.current.play();
       setAudioPlaybackState("playing");
       setAudioStatusMessage("Audio playing");
+      setShowOverlay(true);
     } catch (err) {
       setAudioPlaybackState("blocked");
       setAudioStatusMessage(err instanceof Error ? err.message : "Browser blocked audio playback.");
@@ -591,18 +594,13 @@ export default function GameClient({
                 type="button"
                 onClick={playCurrentAudio}
                 disabled={!turn.audioUrl || audioPlaybackState === "loading"}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full border border-fuchsia-200/18 bg-fuchsia-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/14 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {audioPlaybackState === "loading" ? (
-                  <>
-                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-fuchsia-50/25 border-t-fuchsia-50" />
-                    Loading audio
-                  </>
-                ) : audioPlaybackState === "playing" ? (
-                  "Playing audio"
-                ) : (
-                  "▶ Play voice"
-                )}
+                {audioPlaybackState === "loading"
+                  ? "Loading audio"
+                  : audioPlaybackState === "playing"
+                    ? "Voice playing"
+                    : "Play voice"}
               </button>
 
               <button
@@ -727,7 +725,7 @@ export default function GameClient({
                 Cards {storyCards.length === 0 ? 0 : Math.min(cardIndex + 1, storyCards.length)}/{Math.max(storyCards.length, 1)}
               </span>
               <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-                This card {currentCardWords}/{phoneCardWordLimit} words
+                Voice {audioPlaybackState}
               </span>
             </div>
 
@@ -740,7 +738,18 @@ export default function GameClient({
               >
                 Previous
               </button>
-              <span className="text-xs uppercase tracking-[0.18em] text-white/50">Swipe up for next card</span>
+              <button
+                type="button"
+                onClick={playCurrentAudio}
+                disabled={!turn.audioUrl || audioPlaybackState === "loading"}
+                className="rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-4 py-2 text-xs uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {audioPlaybackState === "loading"
+                  ? "Loading audio"
+                  : audioPlaybackState === "playing"
+                    ? "Voice playing"
+                    : "Play voice"}
+              </button>
               <button
                 type="button"
                 onClick={goToNextCard}
