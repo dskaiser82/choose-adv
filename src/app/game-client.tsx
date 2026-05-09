@@ -134,6 +134,8 @@ export default function GameClient({
   const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
   const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>("idle");
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
+  const [bridgeTestState, setBridgeTestState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [bridgeTestMessage, setBridgeTestMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -353,6 +355,39 @@ export default function GameClient({
     } catch (err) {
       setAudioPlaybackState("blocked");
       setAudioStatusMessage(err instanceof Error ? err.message : "Browser blocked audio playback.");
+    }
+  }
+
+  async function runBridgeTest() {
+    setBridgeTestState("loading");
+    setBridgeTestMessage("Testing bridge...");
+
+    try {
+      const response = await fetch("/api/bridge-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: "vercel-ui",
+          action: "bridge test ping",
+          worldName,
+          playerName,
+          timestamp: Date.now(),
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; message?: string; error?: string; received?: { source?: string } }
+        | null;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error ?? `Bridge test failed: ${response.status}`);
+      }
+
+      setBridgeTestState("success");
+      setBridgeTestMessage(`Bridge reached: ${payload.message ?? "ok"}`);
+    } catch (err) {
+      setBridgeTestState("error");
+      setBridgeTestMessage(err instanceof Error ? err.message : "Bridge test failed.");
     }
   }
 
@@ -610,6 +645,15 @@ export default function GameClient({
               >
                 {showRecap ? "Hide recap" : "Show recap"}
               </button>
+
+              <button
+                type="button"
+                onClick={runBridgeTest}
+                disabled={bridgeTestState === "loading"}
+                className="rounded-full border border-sky-300/20 bg-sky-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-sky-50 transition hover:bg-sky-200/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {bridgeTestState === "loading" ? "Testing bridge" : "Test bridge"}
+              </button>
             </div>
           </form>
         </div>
@@ -652,6 +696,15 @@ export default function GameClient({
               <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Fade {(revealSpeed / 1000).toFixed(1)}s</span>
             </div>
             {audioStatusMessage ? <p className="mt-4 text-sm text-fuchsia-100/80">{audioStatusMessage}</p> : null}
+          </div>
+        ) : null}
+
+        {bridgeTestMessage ? (
+          <div className="mt-4 rounded-[20px] border border-sky-300/15 bg-sky-200/5 p-4">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-sky-200/75">Bridge test</p>
+            <p className={`mt-2 text-sm ${bridgeTestState === "error" ? "text-rose-300" : "text-sky-100/85"}`}>
+              {bridgeTestMessage}
+            </p>
           </div>
         ) : null}
       </section>
