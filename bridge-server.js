@@ -3,6 +3,11 @@ const http = require('node:http');
 const PORT = Number(process.env.GAME_BRIDGE_PORT || 5829);
 const TOKEN = process.env.GAME_BRIDGE_TOKEN || 'dev-bridge-token';
 
+// Security boundary: this bridge is intentionally narrow.
+// It must never expose shell execution, arbitrary file access,
+// or generic remote control of the machine. Only game-specific
+// request/response endpoints should live here.
+
 function json(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
