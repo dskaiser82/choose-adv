@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #120d0a;
-  --foreground: #f5e7c8;
+  --background: #07050d;
+  --foreground: #f3ecff;
 }
 
 @theme inline {
@@ -32,11 +32,11 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.12;
+  opacity: 0.14;
   background-image: repeating-linear-gradient(
     to bottom,
-    rgba(255, 240, 200, 0.05) 0,
-    rgba(255, 240, 200, 0.05) 1px,
+    rgba(220, 200, 255, 0.05) 0,
+    rgba(220, 200, 255, 0.05) 1px,
     transparent 2px,
     transparent 4px
   );

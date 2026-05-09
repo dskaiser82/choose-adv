@@ -34,15 +34,6 @@ type PersistedGameState = {
 
 type AudioPlaybackState = "idle" | "loading" | "ready" | "playing" | "blocked" | "error";
 
-type AudioElementDebug = {
-  readyState: number;
-  networkState: number;
-  duration: number | null;
-  currentSrc: string;
-  paused: boolean;
-  ended: boolean;
-};
-
 type GameClientProps = {
   worldName: string;
   playerName: string;
@@ -68,6 +59,7 @@ function buildInitialTurn(worldName: string, playerName: string): TurnResponse {
       "Scout the area before entering town",
       "Approach the nearest stranger and ask questions",
       "Inspect the most suspicious landmark nearby",
+      "Wait, listen, and study the surroundings",
     ],
     usedTts: false,
     ttsMode: "none",
@@ -126,6 +118,7 @@ export default function GameClient({
   const [action, setAction] = useState("");
   const [loading, setLoading] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
+  const [showRecap, setShowRecap] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [turn, setTurn] = useState<TurnResponse>(initialTurn);
@@ -140,7 +133,6 @@ export default function GameClient({
   const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
   const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>("idle");
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
-  const [audioElementDebug, setAudioElementDebug] = useState<AudioElementDebug | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -247,18 +239,6 @@ export default function GameClient({
     };
   }, [showOverlay, storyCards, cardIndex]);
 
-  function refreshAudioDebug() {
-    if (!audioRef.current) return;
-    setAudioElementDebug({
-      readyState: audioRef.current.readyState,
-      networkState: audioRef.current.networkState,
-      duration: Number.isFinite(audioRef.current.duration) ? audioRef.current.duration : null,
-      currentSrc: audioRef.current.currentSrc,
-      paused: audioRef.current.paused,
-      ended: audioRef.current.ended,
-    });
-  }
-
   function resetStoryMode() {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -278,9 +258,9 @@ export default function GameClient({
     setHistory([]);
     setTurn(initialTurn);
     setShowOverlay(false);
+    setShowRecap(false);
     setAudioPlaybackState("idle");
     setAudioStatusMessage(null);
-    setAudioElementDebug(null);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.removeAttribute("src");
@@ -336,7 +316,6 @@ export default function GameClient({
   async function playCurrentAudio() {
     if (!audioRef.current || !turn.audioUrl) return;
     setAudioStatusMessage(null);
-    refreshAudioDebug();
     try {
       await audioRef.current.play();
       setAudioPlaybackState("playing");
@@ -344,8 +323,6 @@ export default function GameClient({
     } catch (err) {
       setAudioPlaybackState("blocked");
       setAudioStatusMessage(err instanceof Error ? err.message : "Browser blocked audio playback.");
-    } finally {
-      refreshAudioDebug();
     }
   }
 
@@ -471,7 +448,6 @@ export default function GameClient({
       if (playbackTurn.audioUrl && audioRef.current) {
         audioRef.current.src = playbackTurn.audioUrl;
         audioRef.current.load();
-        refreshAudioDebug();
         try {
           await audioRef.current.play();
           setAudioPlaybackState("playing");
@@ -479,8 +455,6 @@ export default function GameClient({
         } catch (err) {
           setAudioPlaybackState("blocked");
           setAudioStatusMessage(err instanceof Error ? err.message : "Tap play to start narration audio.");
-        } finally {
-          refreshAudioDebug();
         }
       }
     } catch (err) {
@@ -498,188 +472,149 @@ export default function GameClient({
 
   return (
     <>
-      <section className="rounded-[28px] border border-emerald-300/20 bg-[linear-gradient(180deg,rgba(16,34,28,0.92),rgba(11,19,17,0.96))] p-5 shadow-[0_0_0_1px_rgba(110,231,183,0.04),0_24px_70px_rgba(0,0,0,0.35)] md:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/70">Playable MVP</p>
-            <h2 className="mt-2 text-3xl font-semibold text-emerald-50">Narrator Loop Test</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-emerald-100/75">
-              Freeform input in, narrated response out. If ElevenLabs is configured, playback uses it. Otherwise, the
-              user just reads the story cards manually.
-            </p>
-          </div>
-          <div className="flex flex-col items-start gap-3 md:items-end">
-            <div className="rounded-2xl border border-emerald-200/15 bg-emerald-50/5 px-4 py-3 text-xs uppercase tracking-[0.16em] text-emerald-100/75">
-              {context}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full border border-sky-300/20 bg-sky-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-sky-100/85">
-                Release {releaseVersion}
-              </span>
-              <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-                Saved turns: {history.length}
-              </span>
-              <button
-                type="button"
-                onClick={resetSession}
-                className="rounded-full border border-rose-300/20 bg-rose-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-rose-100 transition hover:bg-rose-200/15"
-              >
-                Reset session
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-emerald-200/10 bg-black/25 p-5">
-          <div className="flex items-start justify-between gap-3">
+      <section className="rounded-[30px] border border-violet-300/15 bg-[linear-gradient(180deg,rgba(14,9,28,0.96),rgba(6,5,14,0.98))] p-4 shadow-[0_0_0_1px_rgba(196,181,253,0.04),0_24px_80px_rgba(0,0,0,0.45)] md:p-6">
+        <div className="rounded-[24px] border border-violet-200/10 bg-black/25 p-4 md:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Current narration</p>
-              <h3 className="mt-3 text-2xl font-semibold text-emerald-50">{turn.sceneTitle}</h3>
+              <p className="text-[11px] uppercase tracking-[0.32em] text-violet-300/70">Current story</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">{turn.sceneTitle}</h2>
+              <p className="mt-2 text-xs uppercase tracking-[0.16em] text-violet-100/55">{context}</p>
             </div>
+            <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-fuchsia-100/90">
+              Release {releaseVersion}
+            </span>
           </div>
 
           <div
             ref={narrationBoxRef}
-            className="mt-4 min-h-[260px] max-h-[52vh] overflow-y-auto rounded-2xl border border-emerald-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] p-4 md:min-h-[320px]"
+            className="mt-4 rounded-[24px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5"
           >
-            <p className="whitespace-pre-wrap text-base leading-8 text-emerald-50/95">{turn.narration}</p>
+            <p className="whitespace-pre-wrap text-base leading-8 text-violet-50/95 md:text-lg">{turn.narration}</p>
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-              Voice mode: {turn.ttsMode}
-            </span>
-            <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-              Persistence: local browser storage
-            </span>
-            <span className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.14em] text-emerald-100/75">
-              Phone card target: ~{phoneCardWordLimit} words
-            </span>
-          </div>
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+            <div>
+              <label htmlFor="action" className="text-xs uppercase tracking-[0.28em] text-violet-300/70">
+                What does {playerName} do?
+              </label>
+              <textarea
+                id="action"
+                value={action}
+                onChange={(e) => setAction(e.target.value)}
+                placeholder="Type the next move or use phone dictation."
+                className="mt-3 min-h-28 w-full rounded-[24px] border border-violet-200/15 bg-[#090611] px-4 py-4 text-base leading-7 text-violet-50 outline-none transition placeholder:text-violet-100/25 focus:border-violet-300/35"
+              />
+            </div>
 
-          <div className="mt-6">
-            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">Suggested prompts</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              {turn.suggestedChoices.map((choice) => (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {turn.suggestedChoices.slice(0, 4).map((choice) => (
                 <button
                   key={choice}
                   type="button"
                   onClick={() => setAction(choice)}
-                  className="rounded-2xl border border-emerald-300/20 bg-[linear-gradient(180deg,rgba(110,231,183,0.10),rgba(110,231,183,0.03))] px-4 py-3 text-left text-sm text-emerald-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-emerald-200/10"
+                  className="rounded-2xl border border-violet-300/20 bg-[linear-gradient(180deg,rgba(168,85,247,0.12),rgba(168,85,247,0.04))] px-4 py-3 text-left text-sm text-violet-50 transition hover:bg-violet-300/12"
                 >
                   {choice}
                 </button>
               ))}
             </div>
-          </div>
-        </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <div>
-            <label htmlFor="action" className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">
-              What does {playerName} do?
-            </label>
-            <textarea
-              id="action"
-              value={action}
-              onChange={(e) => setAction(e.target.value)}
-              placeholder="Use your phone dictation or type freely. Example: I move quietly toward the bell tower and look for whoever rang it."
-              className="mt-3 min-h-32 w-full rounded-2xl border border-emerald-200/15 bg-[#08100e] px-4 py-4 text-base leading-7 text-emerald-50 outline-none transition placeholder:text-emerald-100/30 focus:border-emerald-300/35"
-            />
-          </div>
+            {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+            {!hydrated ? <p className="text-sm text-violet-200/60">Restoring saved browser session...</p> : null}
 
-          <div>
-            <label htmlFor="reveal-speed" className="text-xs uppercase tracking-[0.28em] text-emerald-300/65">
-              Fade speed
-            </label>
-            <div className="mt-3 flex items-center gap-4">
-              <input
-                id="reveal-speed"
-                type="range"
-                min="700"
-                max="2600"
-                step="100"
-                value={revealSpeed}
-                onChange={(e) => setRevealSpeed(Number(e.target.value))}
-                className="w-full accent-emerald-300"
-              />
-              <span className="min-w-20 text-sm text-emerald-100/75">{(revealSpeed / 1000).toFixed(1)}s</span>
-            </div>
-          </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-full bg-violet-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#120a22] transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Building scene..." : "Send action"}
+              </button>
 
-          {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-          {!hydrated ? <p className="text-sm text-emerald-200/60">Restoring saved browser session...</p> : null}
+              {turn.audioUrl ? (
+                <button
+                  type="button"
+                  onClick={playCurrentAudio}
+                  className="rounded-full border border-fuchsia-200/25 bg-fuchsia-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#190b21] shadow-[0_0_24px_rgba(217,70,239,0.28)] transition hover:bg-fuchsia-200"
+                >
+                  ▶ Play voice
+                </button>
+              ) : null}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-full bg-emerald-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#0b1512] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Building scene..." : "Send action"}
-            </button>
-            {turn.audioUrl ? (
               <button
                 type="button"
-                onClick={playCurrentAudio}
-                className="rounded-full border border-sky-200/30 bg-sky-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#08131a] shadow-[0_0_24px_rgba(125,211,252,0.35)] transition hover:bg-sky-200"
+                onClick={() => setShowRecap((prev) => !prev)}
+                className="rounded-full border border-violet-300/20 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-violet-100 transition hover:bg-white/10"
               >
-                ▶ Play narration audio
+                {showRecap ? "Hide recap" : "Show recap"}
               </button>
-            ) : null}
-            <p className="text-sm text-emerald-100/65">
-              Summary seed: {summaryText.slice(0, 120)}
-              {summaryText.length > 120 ? "..." : ""}
-            </p>
-          </div>
-        </form>
 
-        <div className="mt-4 max-w-xl rounded-2xl border border-sky-300/20 bg-sky-200/5 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-sky-200/75">Narration audio</p>
-          {audioStatusMessage ? <p className="mt-2 text-sm text-sky-100/80">{audioStatusMessage}</p> : null}
-          <audio
-            ref={audioRef}
-            controls
-            preload="auto"
-            className="mt-3 w-full"
-            onLoadedMetadata={() => {
-              setAudioPlaybackState("ready");
-              setAudioStatusMessage((current) => current ?? "Audio metadata loaded");
-              refreshAudioDebug();
-            }}
-            onCanPlay={() => {
-              setAudioPlaybackState((current) => (current === "playing" ? current : "ready"));
-              refreshAudioDebug();
-            }}
-            onPlay={() => {
-              setAudioPlaybackState("playing");
-              setAudioStatusMessage("Audio playing");
-              refreshAudioDebug();
-            }}
-            onPause={() => {
-              setAudioPlaybackState((current) => (current === "error" ? current : "ready"));
-              refreshAudioDebug();
-            }}
-            onEnded={() => {
-              setAudioPlaybackState("ready");
-              setAudioStatusMessage("Audio finished");
-              refreshAudioDebug();
-            }}
-            onError={() => {
-              setAudioPlaybackState("error");
-              setAudioStatusMessage("Audio element failed to load or play");
-              refreshAudioDebug();
-            }}
-          />
+              <button
+                type="button"
+                onClick={resetSession}
+                className="rounded-full border border-violet-300/20 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-violet-100 transition hover:bg-white/10"
+              >
+                Reset
+              </button>
+            </div>
+          </form>
         </div>
+
+        {showRecap ? (
+          <div className="mt-4 rounded-[24px] border border-violet-200/10 bg-black/20 p-4 md:p-5">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-violet-300/70">Recap</p>
+            <p className="mt-3 text-sm leading-7 text-violet-100/78">
+              Summary seed: {summaryText.slice(0, 220)}
+              {summaryText.length > 220 ? "..." : ""}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-violet-100/80">
+              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Voice {turn.ttsMode}</span>
+              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Saved turns {history.length}</span>
+              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Card target ~{phoneCardWordLimit} words</span>
+              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Fade {(revealSpeed / 1000).toFixed(1)}s</span>
+            </div>
+            <div className="mt-4 max-w-xl rounded-2xl border border-fuchsia-300/15 bg-fuchsia-200/5 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-fuchsia-200/75">Narration audio</p>
+              {audioStatusMessage ? <p className="mt-2 text-sm text-fuchsia-100/80">{audioStatusMessage}</p> : null}
+              <audio
+                ref={audioRef}
+                controls
+                preload="auto"
+                className="mt-3 w-full"
+                onLoadedMetadata={() => {
+                  setAudioPlaybackState("ready");
+                  setAudioStatusMessage((current) => current ?? "Audio metadata loaded");
+                }}
+                onCanPlay={() => {
+                  setAudioPlaybackState((current) => (current === "playing" ? current : "ready"));
+                }}
+                onPlay={() => {
+                  setAudioPlaybackState("playing");
+                  setAudioStatusMessage("Audio playing");
+                }}
+                onPause={() => {
+                  setAudioPlaybackState((current) => (current === "error" ? current : "ready"));
+                }}
+                onEnded={() => {
+                  setAudioPlaybackState("ready");
+                  setAudioStatusMessage("Audio finished");
+                }}
+                onError={() => {
+                  setAudioPlaybackState("error");
+                  setAudioStatusMessage("Audio element failed to load or play");
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {shouldShowOverlay ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#04020a]">
           <button
             type="button"
             onClick={() => setShowOverlay(false)}
-            className="absolute right-5 top-5 z-10 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10"
+            className="absolute right-5 top-5 z-10 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10"
           >
             Close
           </button>
@@ -701,9 +636,9 @@ export default function GameClient({
           >
             <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
               {displayedCardText ? (
-                <div className="w-full max-w-[22rem] rounded-[32px] border border-white/10 bg-white/[0.035] px-5 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur-sm md:max-w-3xl md:px-10 md:py-12">
+                <div className="w-full max-w-[22rem] rounded-[32px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(20,14,40,0.86),rgba(8,6,18,0.92))] px-5 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm md:max-w-3xl md:px-10 md:py-12">
                   <p
-                    className={`whitespace-pre-wrap text-[1.65rem] leading-[1.55] text-white transition-all md:text-5xl ${isCardVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+                    className={`whitespace-pre-wrap text-[1.65rem] leading-[1.55] text-violet-50 transition-all md:text-5xl ${isCardVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
                     style={{ transitionDuration: `${revealSpeed}ms` }}
                   >
                     {displayedCardText}
@@ -711,14 +646,14 @@ export default function GameClient({
                 </div>
               ) : loading ? (
                 <div className="flex items-center gap-3 text-white/60">
-                  <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-white/70" />
+                  <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-violet-300/80" />
                   <span className="text-sm uppercase tracking-[0.3em]">Building scene</span>
                 </div>
               ) : storyModeDone ? (
                 <div className="space-y-4">
-                  <p className="text-3xl leading-[1.55] text-white md:text-5xl">End of passage.</p>
+                  <p className="text-3xl leading-[1.55] text-violet-50 md:text-5xl">End of passage.</p>
                   <p className="text-sm uppercase tracking-[0.28em] text-white/45">
-                    Swipe down to revisit or close to review the full text below
+                    Swipe down to revisit or close to continue
                   </p>
                 </div>
               ) : null}
@@ -727,16 +662,16 @@ export default function GameClient({
 
           <div className="absolute bottom-5 left-1/2 flex w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 flex-col items-center justify-center gap-3 text-center sm:w-auto">
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
                 Release {releaseVersion}
               </span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
                 Fade {(revealSpeed / 1000).toFixed(1)}s
               </span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
                 Cards {storyCards.length === 0 ? 0 : Math.min(cardIndex + 1, storyCards.length)}/{Math.max(storyCards.length, 1)}
               </span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
+              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
                 This card {currentCardWords}/{phoneCardWordLimit} words
               </span>
             </div>
