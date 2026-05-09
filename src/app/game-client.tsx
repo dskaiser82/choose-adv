@@ -119,6 +119,7 @@ export default function GameClient({
   const [loading, setLoading] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
+  const [showStoryDetails, setShowStoryDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [turn, setTurn] = useState<TurnResponse>(initialTurn);
@@ -315,7 +316,8 @@ export default function GameClient({
 
   async function playCurrentAudio() {
     if (!audioRef.current || !turn.audioUrl) return;
-    setAudioStatusMessage(null);
+    setAudioPlaybackState("loading");
+    setAudioStatusMessage("Preparing audio...");
     try {
       await audioRef.current.play();
       setAudioPlaybackState("playing");
@@ -469,6 +471,7 @@ export default function GameClient({
 
   const shouldShowOverlay = showOverlay;
   const currentCardWords = displayedCardText ? countWords(displayedCardText) : 0;
+  const actionChoices = turn.suggestedChoices.slice(0, 4);
 
   return (
     <>
@@ -476,8 +479,8 @@ export default function GameClient({
         <div className="rounded-[24px] border border-violet-200/10 bg-black/25 p-4 md:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.32em] text-violet-300/70">Current story</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">{turn.sceneTitle}</h2>
+              <p className="text-[11px] uppercase tracking-[0.32em] text-violet-300/70">Action console</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">What happens next?</h2>
               <p className="mt-2 text-xs uppercase tracking-[0.16em] text-violet-100/55">{context}</p>
             </div>
             <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-fuchsia-100/90">
@@ -485,17 +488,10 @@ export default function GameClient({
             </span>
           </div>
 
-          <div
-            ref={narrationBoxRef}
-            className="mt-4 rounded-[24px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5"
-          >
-            <p className="whitespace-pre-wrap text-base leading-8 text-violet-50/95 md:text-lg">{turn.narration}</p>
-          </div>
-
           <form onSubmit={handleSubmit} className="mt-5 space-y-4">
             <div>
               <label htmlFor="action" className="text-xs uppercase tracking-[0.28em] text-violet-300/70">
-                What does {playerName} do?
+                Enter the next move
               </label>
               <textarea
                 id="action"
@@ -507,7 +503,7 @@ export default function GameClient({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {turn.suggestedChoices.slice(0, 4).map((choice) => (
+              {actionChoices.map((choice) => (
                 <button
                   key={choice}
                   type="button"
@@ -526,18 +522,33 @@ export default function GameClient({
               <button
                 type="submit"
                 disabled={loading}
-                className="rounded-full bg-violet-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#120a22] transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-violet-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#120a22] transition hover:bg-violet-200 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Building scene..." : "Send action"}
+                {loading ? (
+                  <>
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#120a22]/25 border-t-[#120a22]" />
+                    Building scene
+                  </>
+                ) : (
+                  "Send action"
+                )}
               </button>
 
               {turn.audioUrl ? (
                 <button
                   type="button"
                   onClick={playCurrentAudio}
-                  className="rounded-full border border-fuchsia-200/25 bg-fuchsia-300 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-[#190b21] shadow-[0_0_24px_rgba(217,70,239,0.28)] transition hover:bg-fuchsia-200"
+                  disabled={audioPlaybackState === "loading"}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  ▶ Play voice
+                  {audioPlaybackState === "loading" ? (
+                    <>
+                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-fuchsia-50/25 border-t-fuchsia-50" />
+                      Loading audio
+                    </>
+                  ) : (
+                    "▶ Play voice"
+                  )}
                 </button>
               ) : null}
 
@@ -548,16 +559,35 @@ export default function GameClient({
               >
                 {showRecap ? "Hide recap" : "Show recap"}
               </button>
-
-              <button
-                type="button"
-                onClick={resetSession}
-                className="rounded-full border border-violet-300/20 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-violet-100 transition hover:bg-white/10"
-              >
-                Reset
-              </button>
             </div>
           </form>
+        </div>
+
+        <div className="mt-4 rounded-[24px] border border-violet-200/10 bg-black/20 p-4 md:p-5">
+          <button
+            type="button"
+            onClick={() => setShowStoryDetails((prev) => !prev)}
+            className="flex w-full items-center justify-between gap-4 text-left"
+          >
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.28em] text-violet-300/70">Story panel</p>
+              <h3 className="mt-2 text-xl font-semibold text-white md:text-2xl">{turn.sceneTitle}</h3>
+            </div>
+            <span className="rounded-full border border-violet-300/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-violet-100/80">
+              {showStoryDetails ? "Hide" : "Show"}
+            </span>
+          </button>
+
+          {showStoryDetails ? (
+            <div className="mt-4 animate-fadeIn rounded-[24px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5">
+              <div
+                ref={narrationBoxRef}
+                className="max-h-[52vh] overflow-y-auto"
+              >
+                <p className="whitespace-pre-wrap text-base leading-8 text-violet-50/95 md:text-lg">{turn.narration}</p>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {showRecap ? (
@@ -645,9 +675,16 @@ export default function GameClient({
                   </p>
                 </div>
               ) : loading ? (
-                <div className="flex items-center gap-3 text-white/60">
-                  <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-violet-300/80" />
-                  <span className="text-sm uppercase tracking-[0.3em]">Building scene</span>
+                <div className="flex flex-col items-center gap-4 text-white/75">
+                  <div className="relative flex h-20 w-20 items-center justify-center">
+                    <span className="absolute inline-flex h-20 w-20 animate-ping rounded-full bg-violet-400/15" />
+                    <span className="absolute inline-flex h-14 w-14 animate-pulse rounded-full border border-violet-300/40 bg-violet-300/10" />
+                    <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-violet-200/30 border-t-violet-100" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm uppercase tracking-[0.34em] text-violet-100/90">Building scene</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-violet-200/45">Summoning the next passage</p>
+                  </div>
                 </div>
               ) : storyModeDone ? (
                 <div className="space-y-4">
