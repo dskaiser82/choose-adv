@@ -1,44 +1,19 @@
-function buildTurn({
-  playerName,
-  worldName,
-  playerRegion,
-  playerRole,
-  summaryText,
-  action,
-  previousNarration,
-}: {
-  playerName: string;
-  worldName: string;
-  playerRegion?: string;
-  playerRole?: string;
-  summaryText: string;
-  action: string;
-  previousNarration?: string;
-}) {
-  const regionText = playerRegion ? ` in ${playerRegion}` : "";
-  const roleText = playerRole ? `${playerRole}` : "traveler";
-
-  const paragraphs = [
-    `${playerName}, ${roleText} of ${worldName}${regionText}, commits to a move: ${action.trim()}.`,
-    `The world answers carefully. Old tension from the campaign hangs in the air, and every choice feels like it could expose a lie, awaken a danger, or reveal an ally hiding behind fear.`,
-    `Drawing from the current story frame, ${summaryText.slice(0, 220).trim()}${summaryText.length > 220 ? "..." : ""}`,
-    previousNarration
-      ? `What came just before still matters: ${previousNarration.slice(0, 140).trim()}${previousNarration.length > 140 ? "..." : ""}`
-      : `This is the opening pulse of the test run, so the next beat should sharpen the mood and give you something concrete to pursue.`,
-    `Ahead, the path forks into consequence: investigate more deeply, press someone for the truth, or act before the world notices your hesitation.`,
-  ];
-
-  return {
-    sceneTitle: `Turn Response: ${action.trim().slice(0, 42)}`,
-    narration: paragraphs.join("\n\n"),
-    paragraphs,
-    suggestedChoices: [
-      "Push deeper instead of waiting",
-      "Question the nearest witness aggressively",
-      "Hide, observe, and look for a pattern first",
-    ],
+type TurnPayload = {
+  ok: true;
+  sceneTitle: string;
+  narration: string;
+  suggestedChoices: [string, string, string] | string[];
+  debug?: {
+    generator?: string;
+    timestamp?: number;
+    usedStateFiles?: string[];
+    model?: string;
+    [key: string]: unknown;
   };
-}
+};
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const MODEL = "google/gemini-2.5-flash-lite";
 
 function encodeEvent(event: string, data: unknown) {
   const json = JSON.stringify(data);
@@ -46,8 +21,83 @@ function encodeEvent(event: string, data: unknown) {
   return `event: ${event}\n${dataLines}\n\n`;
 }
 
-export async function POST(req: Request) {
-  const body = await req.json();
+function buildFallbackTurn({
+  playerName,
+  worldName,
+  playerRegion,
+  playerRole,
+  action,
+}: {
+  playerName: string;
+  worldName: string;
+  playerRegion?: string;
+  playerRole?: string;
+  action: string;
+}): TurnPayload {
+  const regionText = playerRegion ? ` in ${playerRegion}` : "";
+  const roleText = playerRole ? `${playerRole}` : "traveler";
+
+  return {
+    ok: true,
+    sceneTitle: `Turn Response: ${action.trim().slice(0, 42)}`,
+    narration: [
+      `${playerName}, ${roleText} of ${worldName}${regionText}, commits to a move: ${action.trim()}.`,
+      `The scene tightens instead of resolving cleanly, and the world answers with danger just out of sight.`,
+      `Cade has a brief window to press forward, hide and observe, or test the dark more carefully before it closes on him.`,
+    ].join("\n\n"),
+    suggestedChoices: [
+      "Press forward before the danger can reposition",
+      "Hold still and listen for the next sign of movement",
+      "Test the shadows carefully before committing",
+    ],
+    debug: {
+      generator: "openclaw-fallback",
+      timestamp: Math.floor(Date.now() / 1000),
+      usedStateFiles: ["characters.json", "world.json", "log.json", "summary.md"],
+      model: MODEL,
+    },
+  };
+}
+
+function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayload): TurnPayload {
+  const sceneTitle = typeof payload.sceneTitle === "string" && payload.sceneTitle.trim()
+    ? payload.sceneTitle.trim()
+    : fallback.sceneTitle;
+  const narration = typeof payload.narration === "string" && payload.narration.trim()
+    ? payload.narration.trim()
+    : fallback.narration;
+  const suggestedChoices = Array.isArray(payload.suggestedChoices)
+    ? payload.suggestedChoices.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 3)
+    : [];
+
+  while (suggestedChoices.length < 3) {
+    suggestedChoices.push(fallback.suggestedChoices[suggestedChoices.length] ?? "Keep moving cautiously");
+  }
+
+  return {
+    ok: true,
+    sceneTitle,
+    narration,
+    suggestedChoices,
+    debug: {
+      generator: "openclaw-openrouter",
+      timestamp: Math.floor(Date.now() / 1000),
+      usedStateFiles: ["characters.json", "world.json", "log.json", "summary.md"],
+      model: MODEL,
+      ...(payload.debug ?? {}),
+    },
+  };
+}
+
+async function generateTurn(body: {
+  action?: string;
+  playerName?: string;
+  worldName?: string;
+  playerRegion?: string;
+  playerRole?: string;
+  summaryText?: string;
+  previousNarration?: string;
+}) {
   const {
     action = "",
     playerName = "Cade",
@@ -56,17 +106,84 @@ export async function POST(req: Request) {
     playerRole,
     summaryText = "",
     previousNarration,
-  } = body ?? {};
+  } = body;
 
-  const turn = buildTurn({
-    action,
-    playerName,
-    worldName,
-    playerRegion,
-    playerRole,
-    summaryText,
-    previousNarration,
-  });
+  const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole });
+  const apiKey = process.env.OPEN_ROUTER_API;
+  if (!apiKey) {
+    return fallback;
+  }
+
+  const systemPrompt = [
+    "You are the game master for a personal dark fantasy roleplaying game.",
+    "Return ONLY valid JSON with this exact shape:",
+    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["characters.json","world.json","log.json","summary.md"]}}',
+    "Rules:",
+    "- No markdown",
+    "- No explanation before or after JSON",
+    "- Keep narration to 3-5 short paragraphs max",
+    "- Suggested choices must be grounded in the scene",
+  ].join("\n");
+
+  const userPrompt = [
+    `Player: ${playerName}`,
+    `World: ${worldName}`,
+    `Action: ${action}`,
+    previousNarration ? `Previous narration: ${previousNarration}` : null,
+    playerRegion ? `Region: ${playerRegion}` : null,
+    playerRole ? `Role: ${playerRole}` : null,
+    "Latest event: The world of Veyr and the character Cade were established.",
+    `Campaign summary: ${summaryText}`,
+  ].filter(Boolean).join("\n\n");
+
+  try {
+    const response = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://choose-adventure-lake.vercel.app",
+        "X-Title": "choose-adventure",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8,
+        max_tokens: 700,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!response.ok) {
+      return {
+        ...fallback,
+        debug: {
+          ...(fallback.debug ?? {}),
+          generator: "openclaw-openrouter-fallback",
+          openRouterStatus: response.status,
+        },
+      };
+    }
+
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(content) as Partial<TurnPayload>;
+    return sanitizeTurnPayload(parsed, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const turn = await generateTurn(body ?? {});
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -79,9 +196,9 @@ export async function POST(req: Request) {
         ),
       );
 
-      for (const paragraph of turn.paragraphs) {
-        controller.enqueue(new TextEncoder().encode(encodeEvent("chunk", { text: `${paragraph}\n\n` })));
-        await new Promise((resolve) => setTimeout(resolve, 180));
+      for (const paragraph of turn.narration.split(/\n\n+/)) {
+        if (!paragraph.trim()) continue;
+        controller.enqueue(new TextEncoder().encode(encodeEvent("chunk", { text: `${paragraph.trim()}\n\n` })));
       }
 
       controller.enqueue(
@@ -90,6 +207,7 @@ export async function POST(req: Request) {
             narration: turn.narration,
             sceneTitle: turn.sceneTitle,
             suggestedChoices: turn.suggestedChoices,
+            debug: turn.debug,
           }),
         ),
       );
