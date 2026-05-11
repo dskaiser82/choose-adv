@@ -1,8 +1,24 @@
+import { persistTurn } from "@/lib/turso";
+
 type TurnPayload = {
   ok: true;
   sceneTitle: string;
   narration: string;
   suggestedChoices: [string, string, string] | string[];
+  worldUpdate?: {
+    summary?: string;
+    tone?: string;
+    notes?: string[];
+    regions?: string[];
+    locations?: string[];
+  };
+  characterUpdate?: {
+    status?: string;
+    role?: string;
+    region?: string;
+    hitPoints?: number;
+    notes?: string[];
+  };
   debug?: {
     generator?: string;
     timestamp?: number;
@@ -79,6 +95,8 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
     sceneTitle,
     narration,
     suggestedChoices,
+    characterUpdate: payload.characterUpdate,
+    worldUpdate: payload.worldUpdate,
     debug: {
       generator: "openclaw-openrouter",
       timestamp: Math.floor(Date.now() / 1000),
@@ -117,12 +135,14 @@ async function generateTurn(body: {
   const systemPrompt = [
     "You are the game master for a personal dark fantasy roleplaying game.",
     "Return ONLY valid JSON with this exact shape:",
-    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:story_character","turso:story_world","turso:story_scene","turso:story_events"]}}',
+    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","hitPoints":100,"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:story_character","turso:story_world","turso:story_scene","turso:story_events"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
     "- Keep narration to 3-5 short paragraphs max",
     "- Suggested choices must be grounded in the scene",
+    "- Only include worldUpdate or characterUpdate fields when something meaningful changed",
+    "- Keep updates conservative and cumulative",
   ].join("\n");
 
   const userPrompt = [
@@ -152,7 +172,7 @@ async function generateTurn(body: {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.8,
-        max_tokens: 700,
+        max_tokens: 900,
         response_format: { type: "json_object" },
       }),
     });
@@ -185,6 +205,15 @@ export async function POST(req: Request) {
   const body = await req.json();
   const turn = await generateTurn(body ?? {});
 
+  await persistTurn({
+    action: typeof body?.action === "string" ? body.action : "",
+    sceneTitle: turn.sceneTitle,
+    narration: turn.narration,
+    suggestedChoices: turn.suggestedChoices,
+    characterPatch: turn.characterUpdate,
+    worldPatch: turn.worldUpdate,
+  });
+
   const stream = new ReadableStream({
     async start(controller) {
       controller.enqueue(
@@ -208,6 +237,8 @@ export async function POST(req: Request) {
             sceneTitle: turn.sceneTitle,
             suggestedChoices: turn.suggestedChoices,
             debug: turn.debug,
+            characterUpdate: turn.characterUpdate,
+            worldUpdate: turn.worldUpdate,
           }),
         ),
       );

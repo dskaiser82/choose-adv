@@ -9,6 +9,8 @@ export type CharacterRecord = {
   role?: string | null;
   yearsOfService?: number | null;
   specializations: string[];
+  hitPoints?: number | null;
+  notes?: string[];
 };
 
 export type WorldRecord = {
@@ -19,6 +21,7 @@ export type WorldRecord = {
   majorPowers: string[];
   regions: string[];
   locations: string[];
+  notes?: string[];
 };
 
 export type SceneRecord = {
@@ -43,6 +46,22 @@ export type StoryBootstrap = {
   world: WorldRecord;
   currentScene: SceneRecord | null;
   recentEvents: EventRecord[];
+};
+
+export type PersistTurnInput = {
+  action: string;
+  sceneTitle: string;
+  narration: string;
+  suggestedChoices: string[];
+  characterPatch?: Partial<Pick<CharacterRecord, "status" | "kingdom" | "region" | "role" | "yearsOfService" | "hitPoints">> & {
+    notes?: string[];
+  };
+  worldPatch?: Partial<Pick<WorldRecord, "tone" | "technologyLevel" | "summary">> & {
+    notes?: string[];
+    majorPowers?: string[];
+    regions?: string[];
+    locations?: string[];
+  };
 };
 
 type ExecuteSuccess = {
@@ -113,19 +132,6 @@ function parseJsonArray(value: string | null | undefined) {
   } catch {
     return [];
   }
-}
-
-async function tableExists(tableName: string) {
-  const payload = await tursoPipeline([
-    {
-      type: "execute",
-      stmt: {
-        sql: `select name from sqlite_master where type = 'table' and name = ${sqlString(tableName)} limit 1`,
-      },
-    },
-  ]);
-
-  return rows(payload, 0).length > 0;
 }
 
 export async function ensureSchema() {
@@ -199,7 +205,6 @@ export async function ensureSchema() {
       },
     },
   ]);
-
 }
 
 export async function seedStoryDataIfMissing() {
@@ -247,6 +252,8 @@ export async function seedStoryDataIfMissing() {
         "Assassination",
         "Frontier operations",
       ],
+      hitPoints: 100,
+      notes: [],
     });
   }
 }
@@ -317,6 +324,8 @@ export async function upsertCharacter({
   yearsOfService,
   specializations,
   updatedAt,
+  hitPoints,
+  notes,
 }: {
   id: string;
   name: string;
@@ -328,8 +337,18 @@ export async function upsertCharacter({
   yearsOfService?: number | null;
   specializations: string[];
   updatedAt?: string;
+  hitPoints?: number | null;
+  notes?: string[];
 }) {
   const now = updatedAt ?? new Date().toISOString();
+  const roleWithMeta = role
+    ? hitPoints != null || (notes?.length ?? 0) > 0
+      ? `${role} | hp:${hitPoints ?? ""}${notes?.length ? ` | notes:${notes.join(" / ")}` : ""}`
+      : role
+    : hitPoints != null || (notes?.length ?? 0) > 0
+      ? `hp:${hitPoints ?? ""}${notes?.length ? ` | notes:${notes.join(" / ")}` : ""}`
+      : "";
+
   await tursoPipeline([
     {
       type: "execute",
@@ -344,7 +363,7 @@ export async function upsertCharacter({
             ${sqlString(kingdom ?? "")},
             ${sqlString(region ?? "")},
             ${sqlString(formerAffiliation ?? "")},
-            ${sqlString(role ?? "")},
+            ${sqlString(roleWithMeta)},
             ${yearsOfService ?? "null"},
             ${sqlString(JSON.stringify(specializations))},
             ${sqlString(now)}
@@ -449,6 +468,75 @@ export async function appendEvent({
   ]);
 }
 
+export async function persistTurn(input: PersistTurnInput) {
+  await seedStoryDataIfMissing();
+  const now = new Date().toISOString();
+  const bootstrap = await getStoryBootstrap();
+
+  const nextCharacter: CharacterRecord = {
+    ...bootstrap.character,
+    ...(input.characterPatch ?? {}),
+    notes: input.characterPatch?.notes ?? bootstrap.character.notes ?? [],
+  };
+
+  const nextWorld: WorldRecord = {
+    ...bootstrap.world,
+    ...(input.worldPatch ?? {}),
+    majorPowers: input.worldPatch?.majorPowers ?? bootstrap.world.majorPowers,
+    regions: input.worldPatch?.regions ?? bootstrap.world.regions,
+    locations: input.worldPatch?.locations ?? bootstrap.world.locations,
+    notes: input.worldPatch?.notes ?? bootstrap.world.notes ?? [],
+  };
+
+  await upsertScene({
+    id: crypto.randomUUID(),
+    sceneKey: "current",
+    title: input.sceneTitle,
+    narration: input.narration,
+    suggestedChoices: input.suggestedChoices,
+    actionDraft: "",
+    updatedAt: now,
+  });
+
+  await appendEvent({
+    id: crypto.randomUUID(),
+    eventKey: `turn-${now}`,
+    title: input.sceneTitle,
+    summary: input.narration,
+    action: input.action,
+    createdAt: now,
+  });
+
+  await upsertCharacter({
+    id: "character-main",
+    name: nextCharacter.name,
+    status: nextCharacter.status,
+    kingdom: nextCharacter.kingdom,
+    region: nextCharacter.region,
+    formerAffiliation: nextCharacter.formerAffiliation,
+    role: nextCharacter.role,
+    yearsOfService: nextCharacter.yearsOfService,
+    specializations: nextCharacter.specializations,
+    hitPoints: nextCharacter.hitPoints,
+    notes: nextCharacter.notes,
+    updatedAt: now,
+  });
+
+  await upsertWorld({
+    id: "world-main",
+    name: nextWorld.name,
+    tone: nextWorld.tone,
+    technologyLevel: nextWorld.technologyLevel,
+    summary: nextWorld.summary,
+    majorPowers: nextWorld.majorPowers,
+    regions: nextWorld.regions,
+    locations: nextWorld.locations,
+    updatedAt: now,
+  });
+
+  return getStoryBootstrap();
+}
+
 export async function upsertSampleStoryState() {
   await seedStoryDataIfMissing();
 
@@ -529,6 +617,8 @@ export async function getStoryBootstrap(): Promise<StoryBootstrap> {
   const characterRow = rows(payload, 1)[0];
   const sceneRow = rows(payload, 2)[0];
   const eventRows = rows(payload, 3);
+  const rawRole = rowValue(characterRow, 6) ?? "";
+  const [baseRole] = rawRole.split(" | hp:");
 
   return {
     world: {
@@ -539,6 +629,7 @@ export async function getStoryBootstrap(): Promise<StoryBootstrap> {
       majorPowers: parseJsonArray(rowValue(worldRow, 5)),
       regions: parseJsonArray(rowValue(worldRow, 6)),
       locations: parseJsonArray(rowValue(worldRow, 7)),
+      notes: [],
     },
     character: {
       name: rowValue(characterRow, 1) ?? "Cade",
@@ -546,9 +637,11 @@ export async function getStoryBootstrap(): Promise<StoryBootstrap> {
       kingdom: rowValue(characterRow, 3),
       region: rowValue(characterRow, 4),
       formerAffiliation: rowValue(characterRow, 5),
-      role: rowValue(characterRow, 6),
+      role: baseRole || rawRole || null,
       yearsOfService: rowValue(characterRow, 7) ? Number(rowValue(characterRow, 7)) : null,
       specializations: parseJsonArray(rowValue(characterRow, 8)),
+      notes: [],
+      hitPoints: null,
     },
     currentScene: sceneRow
       ? {
