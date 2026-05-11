@@ -1,5 +1,6 @@
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { toAsyncIterable } from "@elevenlabs/elevenlabs-js/wrapper/utils";
+import { DAMIAN_ID } from "./constants";
 
 async function synthesizeNarration(text: string) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -18,9 +19,10 @@ async function synthesizeNarration(text: string) {
     };
   }
 
+
   try {
     const client = new ElevenLabsClient({ apiKey });
-    const audioStream = await client.textToSpeech.convert("DGhxgogT0bhXlRToPzFs", {
+    const audioStream = await client.textToSpeech.convert(DAMIAN_ID, {
       text,
       modelId: "eleven_multilingual_v2",
       outputFormat: "mp3_44100_128",
