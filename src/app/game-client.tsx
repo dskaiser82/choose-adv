@@ -136,6 +136,10 @@ export default function GameClient({
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
   const [bridgeTestState, setBridgeTestState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [bridgeTestMessage, setBridgeTestMessage] = useState<string | null>(null);
+  const [dbTestState, setDbTestState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [dbTestMessage, setDbTestMessage] = useState<string | null>(null);
+  const [resetState, setResetState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -392,6 +396,68 @@ export default function GameClient({
     } catch (err) {
       setBridgeTestState("error");
       setBridgeTestMessage(err instanceof Error ? err.message : "Bridge test failed.");
+    }
+  }
+
+  async function runDatabaseTest() {
+    setDbTestState("loading");
+    setDbTestMessage("Testing Turso save/read...");
+
+    try {
+      const response = await fetch("/api/turso-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            error?: string;
+            tableCounts?: { world?: number; character?: number; scene?: number; event?: number };
+            state?: { currentScene?: { title?: string | null } | null };
+          }
+        | null;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error ?? `DB test failed: ${response.status}`);
+      }
+
+      setDbTestState("success");
+      setDbTestMessage(
+        `Turso ok: world ${payload.tableCounts?.world ?? 0}, character ${payload.tableCounts?.character ?? 0}, scene ${payload.tableCounts?.scene ?? 0}, event ${payload.tableCounts?.event ?? 0}; current scene ${payload.state?.currentScene?.title ?? "?"}`,
+      );
+    } catch (err) {
+      setDbTestState("error");
+      setDbTestMessage(err instanceof Error ? err.message : "Database test failed.");
+    }
+  }
+
+  async function resetStory() {
+    setResetState("loading");
+    setResetMessage("Resetting story...");
+
+    try {
+      const response = await fetch("/api/reset-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; error?: string; tableCounts?: { world?: number; character?: number; scene?: number; event?: number } }
+        | null;
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error ?? `Reset failed: ${response.status}`);
+      }
+
+      resetSession();
+      setResetState("success");
+      setResetMessage(
+        `Story reset: world ${payload.tableCounts?.world ?? 0}, character ${payload.tableCounts?.character ?? 0}, scene ${payload.tableCounts?.scene ?? 0}, event ${payload.tableCounts?.event ?? 0}`,
+      );
+    } catch (err) {
+      setResetState("error");
+      setResetMessage(err instanceof Error ? err.message : "Reset failed.");
     }
   }
 
@@ -658,6 +724,24 @@ export default function GameClient({
               >
                 {bridgeTestState === "loading" ? "Testing bridge" : "Test bridge"}
               </button>
+
+              <button
+                type="button"
+                onClick={runDatabaseTest}
+                disabled={dbTestState === "loading"}
+                className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-50 transition hover:bg-emerald-200/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {dbTestState === "loading" ? "Testing Turso" : "Test Turso DB"}
+              </button>
+
+              <button
+                type="button"
+                onClick={resetStory}
+                disabled={resetState === "loading"}
+                className="rounded-full border border-amber-300/20 bg-amber-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-amber-50 transition hover:bg-amber-200/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resetState === "loading" ? "Resetting" : "Reset story"}
+              </button>
             </div>
           </form>
         </div>
@@ -708,6 +792,24 @@ export default function GameClient({
             <p className="text-[11px] uppercase tracking-[0.22em] text-sky-200/75">Bridge test</p>
             <p className={`mt-2 text-sm ${bridgeTestState === "error" ? "text-rose-300" : "text-sky-100/85"}`}>
               {bridgeTestMessage}
+            </p>
+          </div>
+        ) : null}
+
+        {dbTestMessage ? (
+          <div className="mt-4 rounded-[20px] border border-emerald-300/15 bg-emerald-200/5 p-4">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-200/75">Turso test</p>
+            <p className={`mt-2 text-sm ${dbTestState === "error" ? "text-rose-300" : "text-emerald-100/85"}`}>
+              {dbTestMessage}
+            </p>
+          </div>
+        ) : null}
+
+        {resetMessage ? (
+          <div className="mt-4 rounded-[20px] border border-amber-300/15 bg-amber-200/5 p-4">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-amber-200/75">Story reset</p>
+            <p className={`mt-2 text-sm ${resetState === "error" ? "text-rose-300" : "text-amber-100/85"}`}>
+              {resetMessage}
             </p>
           </div>
         ) : null}

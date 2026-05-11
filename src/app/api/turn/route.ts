@@ -53,7 +53,7 @@ function buildFallbackTurn({
     debug: {
       generator: "openclaw-fallback",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["characters.json", "world.json", "log.json", "summary.md"],
+      usedStateFiles: ["turso:story_character", "turso:story_world", "turso:story_scene", "turso:story_events"],
       model: MODEL,
     },
   };
@@ -82,7 +82,7 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
     debug: {
       generator: "openclaw-openrouter",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["characters.json", "world.json", "log.json", "summary.md"],
+      usedStateFiles: ["turso:story_character", "turso:story_world", "turso:story_scene", "turso:story_events"],
       model: MODEL,
       ...(payload.debug ?? {}),
     },
@@ -117,7 +117,7 @@ async function generateTurn(body: {
   const systemPrompt = [
     "You are the game master for a personal dark fantasy roleplaying game.",
     "Return ONLY valid JSON with this exact shape:",
-    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["characters.json","world.json","log.json","summary.md"]}}',
+    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:story_character","turso:story_world","turso:story_scene","turso:story_events"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
