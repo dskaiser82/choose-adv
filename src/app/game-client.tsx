@@ -2,6 +2,25 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function createAnalyser(audio: HTMLAudioElement) {
+  const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextCtor) return null;
+
+  const context = new AudioContextCtor();
+  const source = context.createMediaElementSource(audio);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.82;
+  source.connect(analyser);
+  analyser.connect(context.destination);
+
+  return { context, analyser };
+}
+
 type TurnResponse = {
   narration: string;
   sceneTitle: string;
@@ -142,6 +161,11 @@ export default function GameClient({
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const orbAnimationFrameRef = useRef<number | null>(null);
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const [orbLevel, setOrbLevel] = useState(0.18);
 
   const context = useMemo(() => {
     return [
@@ -250,12 +274,93 @@ export default function GameClient({
       audioRef.current.pause();
       audioRef.current.removeAttribute("src");
       audioRef.current.load();
+      setOrbLevel(0.18);
       return;
     }
 
     audioRef.current.src = turn.audioUrl;
     audioRef.current.load();
   }, [turn.audioUrl]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const ensureAnalyser = async () => {
+      if (audioAnalyserRef.current && audioContextRef.current) {
+        if (audioContextRef.current.state === "suspended") {
+          await audioContextRef.current.resume().catch(() => undefined);
+        }
+        return true;
+      }
+
+      const created = createAnalyser(audio);
+      if (!created) return false;
+
+      audioContextRef.current = created.context;
+      audioAnalyserRef.current = created.analyser;
+      audioDataRef.current = new Uint8Array(new ArrayBuffer(created.analyser.frequencyBinCount));
+      if (created.context.state === "suspended") {
+        await created.context.resume().catch(() => undefined);
+      }
+      return true;
+    };
+
+    const tick = () => {
+      const analyser = audioAnalyserRef.current;
+      const data = audioDataRef.current;
+      if (!analyser || !data) {
+        setOrbLevel((current) => current * 0.92 + 0.16 * 0.08);
+        orbAnimationFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      analyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (const value of data) sum += value;
+      const average = data.length ? sum / data.length / 255 : 0;
+      const nextLevel = clamp(0.14 + average * 1.35, 0.14, 1);
+      setOrbLevel((current) => current * 0.72 + nextLevel * 0.28);
+      orbAnimationFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    const handlePlay = () => {
+      ensureAnalyser().then(() => {
+        if (orbAnimationFrameRef.current == null) {
+          orbAnimationFrameRef.current = window.requestAnimationFrame(tick);
+        }
+      });
+    };
+
+    const handleStop = () => {
+      if (orbAnimationFrameRef.current != null) {
+        window.cancelAnimationFrame(orbAnimationFrameRef.current);
+        orbAnimationFrameRef.current = null;
+      }
+      setOrbLevel((current) => current * 0.7 + 0.18 * 0.3);
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handleStop);
+    audio.addEventListener("ended", handleStop);
+
+    return () => {
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handleStop);
+      audio.removeEventListener("ended", handleStop);
+      if (orbAnimationFrameRef.current != null) {
+        window.cancelAnimationFrame(orbAnimationFrameRef.current);
+        orbAnimationFrameRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => undefined);
+        audioContextRef.current = null;
+      }
+      audioAnalyserRef.current = null;
+      audioDataRef.current = null;
+    };
+  }, []);
 
   function resetStoryMode() {
     if (timerRef.current) {
@@ -566,6 +671,10 @@ export default function GameClient({
   const shouldShowOverlay = showOverlay;
   const currentCardWords = displayedCardText ? countWords(displayedCardText) : 0;
   const actionChoices = turn.suggestedChoices.slice(0, 4);
+  const orbScale = 1 + orbLevel * 0.22;
+  const orbGlow = 0.28 + orbLevel * 0.4;
+  const orbHaloScale = 1 + orbLevel * 0.32;
+  const orbSubtitle = displayedCardText || (loading ? "Gathering the next beat of the story..." : turn.narration);
 
   return (
     <>
@@ -784,34 +893,50 @@ export default function GameClient({
             }}
           >
             <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
-              {displayedCardText ? (
-                <div className="w-full max-w-[22rem] rounded-[32px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(20,14,40,0.86),rgba(8,6,18,0.92))] px-5 py-8 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-sm md:max-w-3xl md:px-10 md:py-12">
-                  <p
-                    className={`whitespace-pre-wrap text-[1.65rem] leading-[1.55] text-violet-50 transition-all md:text-5xl ${isCardVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
-                    style={{ transitionDuration: `${revealSpeed}ms` }}
-                  >
-                    {displayedCardText}
-                  </p>
+              <div className="relative flex h-[16rem] w-[16rem] items-center justify-center md:h-[20rem] md:w-[20rem]">
+                <div
+                  className="absolute inset-0 rounded-full bg-violet-500/20 blur-3xl transition-transform duration-200"
+                  style={{ transform: `scale(${1.08 + orbLevel * 0.2})`, opacity: orbGlow }}
+                />
+                <div
+                  className="absolute inset-[10%] rounded-full border border-fuchsia-200/20 transition-transform duration-150"
+                  style={{ transform: `scale(${orbHaloScale})`, boxShadow: `0 0 60px rgba(217, 70, 239, ${0.18 + orbLevel * 0.18})` }}
+                />
+                <div
+                  className="absolute inset-[18%] rounded-full border border-cyan-200/12 opacity-80 transition-transform duration-150"
+                  style={{ transform: `scale(${1 + orbLevel * 0.18}) rotate(${orbLevel * 10}deg)` }}
+                />
+                <div
+                  className="story-orb relative h-[66%] w-[66%] rounded-full transition-transform duration-150"
+                  style={{
+                    transform: `scale(${orbScale})`,
+                    boxShadow: `0 0 40px rgba(139, 92, 246, ${0.34 + orbLevel * 0.18}), 0 0 110px rgba(59, 130, 246, ${0.12 + orbLevel * 0.12})`,
+                  }}
+                >
+                  <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle_at_32%_28%,rgba(255,255,255,0.75),rgba(255,255,255,0.16)_20%,transparent_42%)] opacity-85" />
+                  <div className="absolute inset-[14%] rounded-full border border-white/10" />
+                  <div className="absolute inset-[-10%] rounded-full bg-[conic-gradient(from_180deg,rgba(217,70,239,0.18),rgba(59,130,246,0.12),rgba(168,85,247,0.2),rgba(217,70,239,0.18))] blur-2xl" />
                 </div>
-              ) : loading ? (
-                <div className="flex flex-col items-center gap-4 text-white/75">
-                  <div className="space-y-2 text-center">
-                    <p className="animate-pulse text-base font-medium uppercase tracking-[0.38em] text-violet-100/90">
-                      Building scene
-                    </p>
-                    <p className="animate-fadeIn text-xs uppercase tracking-[0.22em] text-violet-200/45">
-                      Gathering the next beat of the story...
-                    </p>
-                  </div>
-                </div>
-              ) : storyModeDone ? (
-                <div className="space-y-4">
+              </div>
+
+              {storyModeDone ? (
+                <div className="space-y-4 text-center">
                   <p className="text-3xl leading-[1.55] text-violet-50 md:text-5xl">End of passage.</p>
                   <p className="text-sm uppercase tracking-[0.28em] text-white/45">
                     Swipe down to revisit or close to continue
                   </p>
                 </div>
-              ) : null}
+              ) : (
+                <div className="w-full max-w-[24rem] rounded-[32px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(20,14,40,0.72),rgba(8,6,18,0.82))] px-5 py-6 shadow-[0_20px_80px_rgba(0,0,0,0.4)] backdrop-blur-sm md:max-w-3xl md:px-10 md:py-8">
+                  <p className="mb-3 text-[11px] uppercase tracking-[0.32em] text-violet-200/55">Narration</p>
+                  <p
+                    className={`whitespace-pre-wrap text-[1.1rem] leading-[1.7] text-violet-50 transition-all md:text-[1.55rem] ${isCardVisible || !displayedCardText ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+                    style={{ transitionDuration: `${revealSpeed}ms` }}
+                  >
+                    {orbSubtitle}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

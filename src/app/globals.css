@@ -62,3 +62,25 @@ a {
     transform: translateY(0);
   }
 }
+
+@keyframes orbDrift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(0, -5px, 0) scale(1.02);
+  }
+  66% {
+    transform: translate3d(0, 4px, 0) scale(0.99);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.story-orb {
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.2) 14%, transparent 28%),
+    radial-gradient(circle at 50% 48%, rgba(99,102,241,0.32) 0%, rgba(168,85,247,0.92) 38%, rgba(76,29,149,0.96) 70%, rgba(9,6,20,1) 100%);
+  animation: orbDrift 4.8s ease-in-out infinite;
+}
