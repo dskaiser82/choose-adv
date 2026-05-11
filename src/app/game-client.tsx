@@ -675,6 +675,7 @@ export default function GameClient({
   const orbGlow = 0.28 + orbLevel * 0.4;
   const orbHaloScale = 1 + orbLevel * 0.32;
   const orbSubtitle = displayedCardText || (loading ? "Gathering the next beat of the story..." : turn.narration);
+  const hasCardPagination = storyCards.length > 1;
 
   return (
     <>
@@ -868,17 +869,17 @@ export default function GameClient({
       </section>
 
       {shouldShowOverlay ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#04020a]">
+        <div className="fixed inset-0 z-50 bg-[#04020a] text-white">
           <button
             type="button"
             onClick={() => setShowOverlay(false)}
-            className="absolute right-5 top-5 z-10 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10"
+            className="absolute right-4 top-4 z-20 rounded-full border border-white/15 bg-black/25 px-4 py-2 text-[11px] uppercase tracking-[0.22em] text-white/80 backdrop-blur transition hover:bg-white/10 md:right-6 md:top-6"
           >
             Close
           </button>
 
           <div
-            className="flex h-full w-full items-center justify-center px-5 text-center md:px-8"
+            className="flex h-full w-full flex-col px-4 pb-5 pt-18 md:px-8 md:pb-8 md:pt-24"
             onTouchStart={(e) => {
               touchStartYRef.current = e.changedTouches[0]?.clientY ?? null;
             }}
@@ -892,99 +893,111 @@ export default function GameClient({
               if (deltaY < -SWIPE_THRESHOLD_PX) goToPreviousCard();
             }}
           >
-            <div className="mx-auto flex w-full max-w-4xl flex-col items-center justify-center gap-8">
-              <div className="relative flex h-[16rem] w-[16rem] items-center justify-center md:h-[20rem] md:w-[20rem]">
-                <div
-                  className="absolute inset-0 rounded-full bg-violet-500/20 blur-3xl transition-transform duration-200"
-                  style={{ transform: `scale(${1.08 + orbLevel * 0.2})`, opacity: orbGlow }}
-                />
-                <div
-                  className="absolute inset-[10%] rounded-full border border-fuchsia-200/20 transition-transform duration-150"
-                  style={{ transform: `scale(${orbHaloScale})`, boxShadow: `0 0 60px rgba(217, 70, 239, ${0.18 + orbLevel * 0.18})` }}
-                />
-                <div
-                  className="absolute inset-[18%] rounded-full border border-cyan-200/12 opacity-80 transition-transform duration-150"
-                  style={{ transform: `scale(${1 + orbLevel * 0.18}) rotate(${orbLevel * 10}deg)` }}
-                />
-                <div
-                  className="story-orb relative h-[66%] w-[66%] rounded-full transition-transform duration-150"
-                  style={{
-                    transform: `scale(${orbScale})`,
-                    boxShadow: `0 0 40px rgba(139, 92, 246, ${0.34 + orbLevel * 0.18}), 0 0 110px rgba(59, 130, 246, ${0.12 + orbLevel * 0.12})`,
-                  }}
-                >
-                  <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle_at_32%_28%,rgba(255,255,255,0.75),rgba(255,255,255,0.16)_20%,transparent_42%)] opacity-85" />
-                  <div className="absolute inset-[14%] rounded-full border border-white/10" />
-                  <div className="absolute inset-[-10%] rounded-full bg-[conic-gradient(from_180deg,rgba(217,70,239,0.18),rgba(59,130,246,0.12),rgba(168,85,247,0.2),rgba(217,70,239,0.18))] blur-2xl" />
+            <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
+              <div className="flex flex-1 flex-col items-center justify-start gap-5 md:justify-center md:gap-8">
+                <div className="flex w-full justify-center pt-2 md:pt-0">
+                  <div className="relative flex h-[13.5rem] w-[13.5rem] items-center justify-center sm:h-[15rem] sm:w-[15rem] md:h-[20rem] md:w-[20rem]">
+                    <div
+                      className="absolute inset-0 rounded-full bg-violet-500/20 blur-3xl transition-transform duration-200"
+                      style={{ transform: `scale(${1.08 + orbLevel * 0.2})`, opacity: orbGlow }}
+                    />
+                    <div
+                      className="absolute inset-[10%] rounded-full border border-fuchsia-200/20 transition-transform duration-150"
+                      style={{ transform: `scale(${orbHaloScale})`, boxShadow: `0 0 60px rgba(217, 70, 239, ${0.18 + orbLevel * 0.18})` }}
+                    />
+                    <div
+                      className="absolute inset-[18%] rounded-full border border-cyan-200/12 opacity-80 transition-transform duration-150"
+                      style={{ transform: `scale(${1 + orbLevel * 0.18}) rotate(${orbLevel * 10}deg)` }}
+                    />
+                    <div
+                      className="story-orb relative h-[66%] w-[66%] rounded-full transition-transform duration-150"
+                      style={{
+                        transform: `scale(${orbScale})`,
+                        boxShadow: `0 0 40px rgba(139, 92, 246, ${0.34 + orbLevel * 0.18}), 0 0 110px rgba(59, 130, 246, ${0.12 + orbLevel * 0.12})`,
+                      }}
+                    >
+                      <div className="absolute inset-[8%] rounded-full bg-[radial-gradient(circle_at_32%_28%,rgba(255,255,255,0.75),rgba(255,255,255,0.16)_20%,transparent_42%)] opacity-85" />
+                      <div className="absolute inset-[14%] rounded-full border border-white/10" />
+                      <div className="absolute inset-[-10%] rounded-full bg-[conic-gradient(from_180deg,rgba(217,70,239,0.18),rgba(59,130,246,0.12),rgba(168,85,247,0.2),rgba(217,70,239,0.18))] blur-2xl" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full max-w-3xl flex-1 rounded-[28px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(20,14,40,0.52),rgba(8,6,18,0.74))] px-4 py-4 shadow-[0_20px_80px_rgba(0,0,0,0.35)] backdrop-blur-sm md:flex-none md:px-8 md:py-6">
+                  {storyModeDone ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 py-8 text-center md:py-10">
+                      <p className="text-2xl leading-[1.45] text-violet-50 md:text-4xl">End of passage.</p>
+                      <p className="text-xs uppercase tracking-[0.26em] text-white/45 md:text-sm">
+                        Swipe down to revisit or close to continue
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="text-[10px] uppercase tracking-[0.3em] text-violet-200/55 md:text-[11px]">Narration</p>
+                        <span className="rounded-full border border-white/12 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/65 md:text-[11px]">
+                          Voice {audioPlaybackState}
+                        </span>
+                      </div>
+                      <div className="max-h-[34vh] overflow-y-auto pr-1 md:max-h-[28vh] md:pr-2">
+                        <p
+                          className={`whitespace-pre-wrap text-[1rem] leading-[1.72] text-violet-50 transition-all sm:text-[1.08rem] md:text-[1.45rem] md:leading-[1.75] ${isCardVisible || !displayedCardText ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
+                          style={{ transitionDuration: `${revealSpeed}ms` }}
+                        >
+                          {orbSubtitle}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {storyModeDone ? (
-                <div className="space-y-4 text-center">
-                  <p className="text-3xl leading-[1.55] text-violet-50 md:text-5xl">End of passage.</p>
-                  <p className="text-sm uppercase tracking-[0.28em] text-white/45">
-                    Swipe down to revisit or close to continue
-                  </p>
+              <div className="mt-4 flex flex-col items-center gap-3 pb-safe md:mt-6">
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/70 md:text-xs">
+                    Release {releaseVersion}
+                  </span>
+                  <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/70 md:text-xs">
+                    Fade {(revealSpeed / 1000).toFixed(1)}s
+                  </span>
+                  {hasCardPagination ? (
+                    <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/70 md:text-xs">
+                      Cards {Math.min(cardIndex + 1, storyCards.length)}/{storyCards.length}
+                    </span>
+                  ) : null}
                 </div>
-              ) : (
-                <div className="w-full max-w-[24rem] rounded-[32px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(20,14,40,0.72),rgba(8,6,18,0.82))] px-5 py-6 shadow-[0_20px_80px_rgba(0,0,0,0.4)] backdrop-blur-sm md:max-w-3xl md:px-10 md:py-8">
-                  <p className="mb-3 text-[11px] uppercase tracking-[0.32em] text-violet-200/55">Narration</p>
-                  <p
-                    className={`whitespace-pre-wrap text-[1.1rem] leading-[1.7] text-violet-50 transition-all md:text-[1.55rem] ${isCardVisible || !displayedCardText ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"}`}
-                    style={{ transitionDuration: `${revealSpeed}ms` }}
+
+                <div className="flex w-full max-w-md items-center justify-center gap-2 sm:gap-3">
+                  <button
+                    type="button"
+                    onClick={goToPreviousCard}
+                    disabled={loading || isTransitioningCard || cardIndex === 0}
+                    className="min-w-0 flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-3 text-[11px] uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 md:flex-none md:px-4 md:py-2 md:text-xs"
                   >
-                    {orbSubtitle}
-                  </p>
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={playCurrentAudio}
+                    disabled={!turn.audioUrl || audioPlaybackState === "loading"}
+                    className="min-w-0 flex-1 rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-3 py-3 text-[11px] uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-40 md:flex-none md:px-4 md:py-2 md:text-xs"
+                  >
+                    {audioPlaybackState === "loading"
+                      ? "Loading"
+                      : audioPlaybackState === "playing"
+                        ? "Playing"
+                        : "Play voice"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNextCard}
+                    disabled={loading || isTransitioningCard || storyModeDone || storyCards.length === 0}
+                    className="min-w-0 flex-1 rounded-full border border-white/20 bg-white/5 px-3 py-3 text-[11px] uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 md:flex-none md:px-4 md:py-2 md:text-xs"
+                  >
+                    Next
+                  </button>
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className="absolute bottom-5 left-1/2 flex w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 flex-col items-center justify-center gap-3 text-center sm:w-auto">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-                Release {releaseVersion}
-              </span>
-              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-                Fade {(revealSpeed / 1000).toFixed(1)}s
-              </span>
-              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-                Cards {storyCards.length === 0 ? 0 : Math.min(cardIndex + 1, storyCards.length)}/{Math.max(storyCards.length, 1)}
-              </span>
-              <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-white/70">
-                Voice {audioPlaybackState}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={goToPreviousCard}
-                disabled={loading || isTransitioningCard || cardIndex === 0}
-                className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={playCurrentAudio}
-                disabled={!turn.audioUrl || audioPlaybackState === "loading"}
-                className="rounded-full border border-fuchsia-200/20 bg-fuchsia-200/10 px-4 py-2 text-xs uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/15 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {audioPlaybackState === "loading"
-                  ? "Loading audio"
-                  : audioPlaybackState === "playing"
-                    ? "Voice playing"
-                    : "Play voice"}
-              </button>
-              <button
-                type="button"
-                onClick={goToNextCard}
-                disabled={loading || isTransitioningCard || storyModeDone || storyCards.length === 0}
-                className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-              </button>
+              </div>
             </div>
           </div>
         </div>
