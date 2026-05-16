@@ -696,14 +696,6 @@ export default function GameClient({
                     : "Play voice"}
               </button>
 
-              <button
-                type="button"
-                onClick={resetStory}
-                disabled={resetState === "loading"}
-                className="rounded-full border border-amber-300/20 bg-amber-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-amber-50 transition hover:bg-amber-200/15 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {resetState === "loading" ? "Resetting" : "Reset story"}
-              </button>
             </div>
           </form>
         </div>
