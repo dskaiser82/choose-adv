@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getStoryBootstrap } from "@/lib/turso";
 
 export default async function CharacterPage() {
-  const { character } = await getStoryBootstrap();
+  const { character, inventory } = await getStoryBootstrap();
 
   return (
     <main className="min-h-screen bg-[#120d0a] bg-[linear-gradient(180deg,_#1b140f_0%,_#120d0a_100%)] px-4 py-6 text-[#f5e7c8] md:px-8 md:py-8">
@@ -69,6 +69,23 @@ export default async function CharacterPage() {
                 <span key={item} className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-sm text-amber-50/90">
                   {item}
                 </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {inventory.some((item) => item.abilities?.length) ? (
+          <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Magical abilities</p>
+            <div className="mt-4 space-y-3">
+              {inventory.flatMap((item) => (item.abilities ?? []).map((ability) => ({ ability, itemName: item.name }))).map(({ ability, itemName }) => (
+                <div key={`${itemName}-${ability.key}`} className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
+                  <p className="text-sm font-semibold text-amber-50/95">{ability.name}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-amber-200/60">Granted by {itemName}</p>
+                  <p className="mt-2 text-sm leading-6 text-amber-50/80">{ability.description}</p>
+                  <p className="mt-2 text-sm text-amber-100/75"><span className="font-semibold">Cost:</span> {ability.cost}</p>
+                  <p className="mt-1 text-sm text-amber-100/75"><span className="font-semibold">Downside:</span> {ability.downside}</p>
+                </div>
               ))}
             </div>
           </div>
