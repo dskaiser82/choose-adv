@@ -4,7 +4,7 @@ import GameClient from "./game-client";
 import { getStoryBootstrap } from "@/lib/turso";
 
 export default async function Home() {
-  const [{ run, character, world, currentScene }, packageRaw] = await Promise.all([
+  const [{ character, world, currentScene }, packageRaw] = await Promise.all([
     getStoryBootstrap(),
     fs.readFile(path.join(process.cwd(), "package.json"), "utf8"),
   ]);
@@ -22,7 +22,6 @@ export default async function Home() {
           playerRegion={character.region ?? undefined}
           playerRole={character.role ?? undefined}
           summaryText={world.summary}
-          releaseVersion={releaseVersion}
         />
 
         <header className="relative overflow-hidden rounded-[30px] border border-violet-300/15 bg-[linear-gradient(180deg,rgba(18,10,36,0.94),rgba(8,6,18,0.98))] p-4 shadow-[0_0_0_1px_rgba(196,181,253,0.04),0_24px_70px_rgba(0,0,0,0.45)] md:p-6">
@@ -30,9 +29,6 @@ export default async function Home() {
           <div className="relative flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-[11px] uppercase tracking-[0.38em] text-violet-200/75">Choose Adventure</p>
-              <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-fuchsia-100/90">
-                Release {releaseVersion}
-              </span>
             </div>
 
             <div>
@@ -50,10 +46,6 @@ export default async function Home() {
               {character.region ? (
                 <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">{character.region}</span>
               ) : null}
-              {world.tone ? (
-                <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">{world.tone}</span>
-              ) : null}
-              <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">Run: {run.name}</span>
             </div>
           </div>
         </header>

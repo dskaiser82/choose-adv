@@ -52,7 +52,6 @@ type GameClientProps = {
   playerRegion?: string;
   playerRole?: string;
   summaryText: string;
-  releaseVersion: string;
 };
 
 const DEFAULT_REVEAL_SPEED = 1500;
@@ -123,7 +122,6 @@ export default function GameClient({
   playerRegion,
   playerRole,
   summaryText,
-  releaseVersion,
 }: GameClientProps) {
   const initialTurn = useMemo(() => buildInitialTurn(worldName, playerName), [worldName, playerName]);
   const [action, setAction] = useState("");
@@ -143,8 +141,6 @@ export default function GameClient({
   const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
   const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>("idle");
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
-  const [resetState, setResetState] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const narrationBoxRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -331,22 +327,6 @@ export default function GameClient({
     setIsTransitioningCard(false);
   }
 
-  function resetSession() {
-    setAction("");
-    setError(null);
-    setHistory([]);
-    setTurn(initialTurn);
-    setShowOverlay(false);
-    setAudioPlaybackState("idle");
-    setAudioStatusMessage(null);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.removeAttribute("src");
-      audioRef.current.load();
-    }
-    resetStoryMode();
-  }
-
   function goToNextCard() {
     if (loading || isTransitioningCard) return;
     if (!storyCards.length) return;
@@ -414,33 +394,6 @@ export default function GameClient({
     } catch (err) {
       setAudioPlaybackState("blocked");
       setAudioStatusMessage(err instanceof Error ? err.message : "Browser blocked audio playback.");
-    }
-  }
-
-  async function resetStory() {
-    setResetState("loading");
-    setResetMessage("Resetting story...");
-
-    try {
-      const response = await fetch("/api/reset-story", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null;
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error ?? `Reset failed: ${response.status}`);
-      }
-
-      resetSession();
-      setResetState("success");
-      setResetMessage("Story reset to a clean starting point.");
-    } catch (err) {
-      setResetState("error");
-      setResetMessage(err instanceof Error ? err.message : "Reset failed.");
     }
   }
 
@@ -592,7 +545,6 @@ export default function GameClient({
   const orbHaloScale = 1 + orbLevel * 0.32;
   const orbSubtitle = displayedCardText || (loading ? "Gathering the next beat of the story..." : turn.narration);
   const hasCardPagination = storyCards.length > 1;
-  const latestTurn = history.length ? history[history.length - 1] : null;
 
   return (
     <>
@@ -632,9 +584,6 @@ export default function GameClient({
               <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">What happens next?</h2>
               <p className="mt-2 text-xs uppercase tracking-[0.16em] text-violet-100/55">{context}</p>
             </div>
-            <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-200/10 px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-fuchsia-100/90">
-              Release {releaseVersion}
-            </span>
           </div>
 
           <form onSubmit={handleSubmit} className="mt-5 space-y-4">
@@ -665,7 +614,6 @@ export default function GameClient({
             </div>
 
             {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-            <p className="text-sm text-violet-200/60">State is stored in Turso. The next move is the primary control; everything else stays available lower on the page when you need it.</p>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -681,19 +629,6 @@ export default function GameClient({
                 ) : (
                   "Send action"
                 )}
-              </button>
-
-              <button
-                type="button"
-                onClick={playCurrentAudio}
-                disabled={!turn.audioUrl || audioPlaybackState === "loading"}
-                className="rounded-full border border-fuchsia-200/18 bg-fuchsia-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-fuchsia-50 transition hover:bg-fuchsia-200/14 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {audioPlaybackState === "loading"
-                  ? "Loading audio"
-                  : audioPlaybackState === "playing"
-                    ? "Voice playing"
-                    : "Play voice"}
               </button>
 
             </div>
@@ -735,27 +670,8 @@ export default function GameClient({
                 <p><span className="font-semibold text-violet-50">Saved turns:</span> {history.length}</p>
                 {audioStatusMessage ? <p><span className="font-semibold text-violet-50">Voice:</span> {audioStatusMessage}</p> : null}
               </div>
-              {latestTurn ? (
-                <div className="mt-4 rounded-2xl border border-violet-200/10 bg-white/5 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-violet-300/70">Last player turn</p>
-                  <p className="mt-2 text-sm leading-7 text-violet-50/90">{latestTurn.action}</p>
-                </div>
-              ) : null}
             </div>
 
-            {(resetMessage || summaryText) ? (
-              <div className="rounded-[20px] border border-violet-200/10 bg-black/15 p-4">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-violet-300/70">Lower priority</p>
-                {resetMessage ? (
-                  <p className={`mt-3 text-sm ${resetState === "error" ? "text-rose-300" : "text-amber-100/85"}`}>
-                    {resetMessage}
-                  </p>
-                ) : null}
-                <p className="mt-3 text-sm leading-7 text-violet-100/65">
-                  Story seed: {summaryText.slice(0, 160)}{summaryText.length > 160 ? "..." : ""}
-                </p>
-              </div>
-            ) : null}
           </div>
         </div>
       </section>
@@ -845,20 +761,6 @@ export default function GameClient({
               </div>
 
               <div className="mt-4 flex flex-col items-center gap-3 pb-safe md:mt-6">
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/70 md:text-xs">
-                    Release {releaseVersion}
-                  </span>
-                  <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/70 md:text-xs">
-                    Fade {(revealSpeed / 1000).toFixed(1)}s
-                  </span>
-                  {hasCardPagination ? (
-                    <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/70 md:text-xs">
-                      Cards {Math.min(cardIndex + 1, storyCards.length)}/{storyCards.length}
-                    </span>
-                  ) : null}
-                </div>
-
                 <div className="flex w-full max-w-md items-center justify-center gap-2 sm:gap-3">
                   <button
                     type="button"

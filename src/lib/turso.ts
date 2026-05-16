@@ -855,16 +855,16 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
   const scene: SceneRecord = {
     id: options.scene?.id ?? crypto.randomUUID(),
     sceneKey: options.scene?.sceneKey ?? "start",
-    title: options.scene?.title ?? "Veyr Test Run",
+    title: options.scene?.title ?? "Campfire in the Grey Marches",
     narration:
       options.scene?.narration ??
-      "Cade stands at the edge of Blackmere with the Grey Marches stretched out behind him. The story is live, the world is loaded from Turso, and the next move will set the tone for what follows.",
+      "Night has settled over the Grey Marches. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. The next move will decide whether this is a quiet night of planning or the beginning of trouble.",
     suggestedChoices:
       options.scene?.suggestedChoices ??
       [
-        "Scout the area before entering town",
-        "Approach the nearest stranger and ask questions",
-        "Inspect the most suspicious landmark nearby",
+        "Study the darkness beyond the firelight",
+        "Inspect the shadow brace and feel for its pull",
+        "Rest, listen, and prepare for what comes next",
       ],
     actionDraft: options.scene?.actionDraft ?? "",
     updatedAt: options.scene?.updatedAt ?? now,
@@ -1781,6 +1781,7 @@ export async function upsertSampleStoryState() {
   };
 }
 
+// Development/testing helper only. Not part of normal player-facing story flow.
 export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
   await ensureSchema();
   const now = isoNow();
@@ -1802,13 +1803,13 @@ export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
     scene: {
       id: crypto.randomUUID(),
       sceneKey: "start",
-      title: "Veyr Test Run",
+      title: "Campfire in the Grey Marches",
       narration:
-        "Cade stands at the edge of Blackmere with the Grey Marches stretched out behind him. The story is live, the world is loaded from Turso, and the next move will set the tone for what follows.",
+        "Night has settled over the Grey Marches. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. The next move will decide whether this is a quiet night of planning or the beginning of trouble.",
       suggestedChoices: [
-        "Scout the area before entering town",
-        "Approach the nearest stranger and ask questions",
-        "Inspect the most suspicious landmark nearby",
+        "Study the darkness beyond the firelight",
+        "Inspect the shadow brace and feel for its pull",
+        "Rest, listen, and prepare for what comes next",
       ],
       actionDraft: "",
       updatedAt: now,
