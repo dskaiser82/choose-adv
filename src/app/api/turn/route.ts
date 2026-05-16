@@ -1,5 +1,13 @@
-import { getStoryBootstrap, type StoryBootstrap } from "@/lib/turso";
+import { getStoryBootstrap, persistDiscovery, type StoryBootstrap } from "@/lib/turso";
 import { persistTurn } from "@/lib/turso";
+
+type DiscoveryPayload = {
+  discoveryType: string;
+  key: string;
+  name: string;
+  summary: string;
+  details?: string;
+};
 
 type TurnPayload = {
   ok: true;
@@ -22,12 +30,14 @@ type TurnPayload = {
     conditions?: string[];
     notes?: string[];
   };
+  discoveries?: DiscoveryPayload[];
   debug?: {
     generator?: string;
     timestamp?: number;
     usedStateFiles?: string[];
     model?: string;
     contextMode?: "full" | "delta";
+    promptMode?: "session_start" | "normal";
     [key: string]: unknown;
   };
 };
@@ -50,6 +60,7 @@ function buildFallbackTurn({
   playerRole,
   action,
   contextMode,
+  promptMode,
 }: {
   playerName: string;
   worldName: string;
@@ -57,6 +68,7 @@ function buildFallbackTurn({
   playerRole?: string;
   action: string;
   contextMode: "full" | "delta";
+  promptMode: "session_start" | "normal";
 }): TurnPayload {
   const regionText = playerRegion ? ` in ${playerRegion}` : "";
   const roleText = playerRole ? `${playerRole}` : "traveler";
@@ -77,11 +89,35 @@ function buildFallbackTurn({
     debug: {
       generator: "openclaw-fallback",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events"],
+      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events", "turso:run_discoveries"],
       model: MODEL,
       contextMode,
+      promptMode,
     },
   };
+}
+
+function sanitizeDiscoveries(raw: unknown) {
+  if (!Array.isArray(raw)) return [] as DiscoveryPayload[];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const value = item as Record<string, unknown>;
+    if (
+      typeof value.discoveryType !== "string" ||
+      typeof value.key !== "string" ||
+      typeof value.name !== "string" ||
+      typeof value.summary !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      discoveryType: value.discoveryType,
+      key: value.key,
+      name: value.name,
+      summary: value.summary,
+      details: typeof value.details === "string" ? value.details : undefined,
+    }];
+  });
 }
 
 function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayload): TurnPayload {
@@ -106,12 +142,14 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
     suggestedChoices,
     characterUpdate: payload.characterUpdate,
     worldUpdate: payload.worldUpdate,
+    discoveries: sanitizeDiscoveries(payload.discoveries),
     debug: {
       generator: "openclaw-openrouter",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events"],
+      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events", "turso:run_discoveries"],
       model: MODEL,
       contextMode: fallback.debug?.contextMode ?? "delta",
+      promptMode: fallback.debug?.promptMode ?? "normal",
       ...(payload.debug ?? {}),
     },
   };
@@ -171,6 +209,13 @@ function buildFullNarratorStatePayload(story: StoryBootstrap) {
       key: flag.flagKey,
       value: flag.flagValue,
     })),
+    discoveries: story.discoveries.slice(0, 12).map((discovery) => ({
+      discoveryType: discovery.discoveryType,
+      key: discovery.key,
+      name: discovery.name,
+      summary: discovery.summary,
+      details: discovery.details,
+    })),
     recentEvents: story.recentEvents.slice(0, 5).map((event) => ({
       title: event.title,
       summary: event.summary,
@@ -215,6 +260,11 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
         tags: ability.tags,
       })),
     })),
+    discoveries: story.discoveries.slice(0, 4).map((discovery) => ({
+      discoveryType: discovery.discoveryType,
+      name: discovery.name,
+      summary: discovery.summary,
+    })),
     flags: importantFlags.map((flag) => ({
       key: flag.flagKey,
       value: flag.flagValue,
@@ -238,45 +288,24 @@ function chooseNarratorContextMode(story: StoryBootstrap) {
   return "delta" as const;
 }
 
-async function generateTurn(body: {
-  action?: string;
-  playerName?: string;
-  worldName?: string;
-  playerRegion?: string;
-  playerRole?: string;
-  summaryText?: string;
-  previousNarration?: string;
-}, story: StoryBootstrap) {
-  const contextMode = chooseNarratorContextMode(story);
-  const {
-    action = "",
-    playerName = story.character.name || "Cade",
-    worldName = story.world.name || "Veyr",
-    playerRegion = story.character.region ?? undefined,
-    playerRole = story.character.role ?? undefined,
-    summaryText = story.world.summary ?? "",
-    previousNarration = story.currentScene?.narration,
-  } = body;
+function choosePromptMode(story: StoryBootstrap) {
+  const turnCount = story.recentEvents.filter((event) => event.action && event.action !== "Reset story").length;
+  return turnCount <= 1 ? "session_start" as const : "normal" as const;
+}
 
-  const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode });
-  const apiKey = process.env.OPEN_ROUTER_API;
-  if (!apiKey) {
-    return fallback;
-  }
-
-  const narratorState = contextMode === "full"
-    ? buildFullNarratorStatePayload(story)
-    : buildDeltaNarratorStatePayload(story);
-
-  const systemPrompt = [
+function buildSystemPrompt(promptMode: "session_start" | "normal") {
+  const common = [
     "You are the game master for a personal dark fantasy roleplaying game.",
     "The database-backed narrator state provided by the app is canonical truth.",
     "You must ground narration and choices in the provided state.",
     "Do not invent new items, magical abilities, world facts, or conditions unless clearly justified by existing state and immediate scene logic.",
     "If an ability is item-granted, only use it if it appears in the narrator state payload.",
     "If a magical ability has a cost or downside, reflect that in your narration and suggested updates when relevant.",
+    "If the player asks a direct question, answer it as directly as the current fiction reasonably allows.",
+    "If you introduce a meaningful new location, NPC, route, or fact, include it in discoveries so the app can save it as canon.",
+    "Avoid repeating the same non-answer twice in a row.",
     "Return ONLY valid JSON with this exact shape:",
-    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","bodyState":"wounded","mindState":"stressed","conditions":["arrow_shoulder"],"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:runs","turso:run_state","turso:run_turns","turso:run_events"]}}',
+    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","bodyState":"wounded","mindState":"stressed","conditions":["arrow_shoulder"],"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"discoveries":[{"discoveryType":"location","key":"blackmere","name":"Blackmere","summary":"A town to the east.","details":"..."}],"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:runs","turso:run_state","turso:run_turns","turso:run_events","turso:run_discoveries"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
@@ -288,10 +317,58 @@ async function generateTurn(body: {
     "- Use mindState values like clear, stressed, shaken, fractured, broken",
     "- Conditions should be concrete tags like arrow_shoulder, limping, bleeding, exhausted, watched_by_guard",
     "- Keep updates conservative and cumulative",
-    "- Treat the narrator state payload as authoritative canon for gear, abilities, flags, and current context",
-  ].join("\n");
+    "- Treat the narrator state payload as authoritative canon for gear, abilities, flags, discoveries, and current context",
+  ];
 
+  if (promptMode === "session_start") {
+    return [
+      ...common,
+      "Session-start reminder:",
+      "- You are a living GM/narrator, not just a prose engine.",
+      "- You may expand the world through towns, routes, NPCs, factions, and discoveries.",
+      "- When you expand the world meaningfully, return discoveries so the app can persist them.",
+      "- Start from uncertainty if the current scene is intentionally limited; do not force the character to already know the wider map.",
+      "- Move the story forward instead of stalling in mood or repetition.",
+    ].join("\n");
+  }
+
+  return common.join("\n");
+}
+
+async function generateTurn(body: {
+  action?: string;
+  playerName?: string;
+  worldName?: string;
+  playerRegion?: string;
+  playerRole?: string;
+  summaryText?: string;
+  previousNarration?: string;
+}, story: StoryBootstrap) {
+  const contextMode = chooseNarratorContextMode(story);
+  const promptMode = choosePromptMode(story);
+  const {
+    action = "",
+    playerName = story.character.name || "Cade",
+    worldName = story.world.name || "Veyr",
+    playerRegion = story.character.region ?? undefined,
+    playerRole = story.character.role ?? undefined,
+    summaryText = story.world.summary ?? "",
+    previousNarration = story.currentScene?.narration,
+  } = body;
+
+  const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode, promptMode });
+  const apiKey = process.env.OPEN_ROUTER_API;
+  if (!apiKey) {
+    return fallback;
+  }
+
+  const narratorState = contextMode === "full"
+    ? buildFullNarratorStatePayload(story)
+    : buildDeltaNarratorStatePayload(story);
+
+  const systemPrompt = buildSystemPrompt(promptMode);
   const userPrompt = [
+    `Prompt mode: ${promptMode}`,
     `Context mode: ${contextMode}`,
     `Player action: ${action}`,
     previousNarration ? `Previous narration: ${previousNarration}` : null,
@@ -316,7 +393,7 @@ async function generateTurn(body: {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.7,
-        max_tokens: 1100,
+        max_tokens: 1200,
         response_format: { type: "json_object" },
       }),
     });
@@ -359,6 +436,16 @@ export async function POST(req: Request) {
     worldPatch: turn.worldUpdate,
   });
 
+  for (const discovery of turn.discoveries ?? []) {
+    await persistDiscovery({
+      discoveryType: discovery.discoveryType,
+      key: discovery.key,
+      name: discovery.name,
+      summary: discovery.summary,
+      details: discovery.details,
+    });
+  }
+
   const stream = new ReadableStream({
     async start(controller) {
       controller.enqueue(
@@ -384,6 +471,7 @@ export async function POST(req: Request) {
             debug: turn.debug,
             characterUpdate: turn.characterUpdate,
             worldUpdate: turn.worldUpdate,
+            discoveries: turn.discoveries,
           }),
         ),
       );
