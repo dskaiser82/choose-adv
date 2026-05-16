@@ -16,7 +16,9 @@ type TurnPayload = {
     status?: string;
     role?: string;
     region?: string;
-    hitPoints?: number;
+    bodyState?: string;
+    mindState?: string;
+    conditions?: string[];
     notes?: string[];
   };
   debug?: {
@@ -100,7 +102,7 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
     debug: {
       generator: "openclaw-openrouter",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["turso:story_character", "turso:story_world", "turso:story_scene", "turso:story_events"],
+      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events"],
       model: MODEL,
       ...(payload.debug ?? {}),
     },
@@ -135,13 +137,17 @@ async function generateTurn(body: {
   const systemPrompt = [
     "You are the game master for a personal dark fantasy roleplaying game.",
     "Return ONLY valid JSON with this exact shape:",
-    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","hitPoints":100,"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:story_character","turso:story_world","turso:story_scene","turso:story_events"]}}',
+    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","bodyState":"wounded","mindState":"stressed","conditions":["arrow_shoulder"],"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:runs","turso:run_state","turso:run_turns","turso:run_events"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
     "- Keep narration to 3-5 short paragraphs max",
     "- Suggested choices must be grounded in the scene",
     "- Only include worldUpdate or characterUpdate fields when something meaningful changed",
+    "- Prefer narrative condition changes over numeric damage",
+    "- Use bodyState values like healthy, strained, wounded, critical, collapsed",
+    "- Use mindState values like clear, stressed, shaken, fractured, broken",
+    "- Conditions should be concrete tags like arrow_shoulder, limping, bleeding, exhausted, watched_by_guard",
     "- Keep updates conservative and cumulative",
   ].join("\n");
 

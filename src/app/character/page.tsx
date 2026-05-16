@@ -26,6 +26,14 @@ export default async function CharacterPage() {
             <p className="mt-2 text-lg text-amber-50">{character.status}</p>
           </div>
           <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Body state</p>
+            <p className="mt-2 text-lg text-amber-50">{character.bodyState ?? "Unknown"}</p>
+          </div>
+          <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Mind state</p>
+            <p className="mt-2 text-lg text-amber-50">{character.mindState ?? "Unknown"}</p>
+          </div>
+          <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
             <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Role</p>
             <p className="mt-2 text-lg text-amber-50">{character.role ?? "Unknown"}</p>
           </div>
@@ -50,6 +58,19 @@ export default async function CharacterPage() {
           <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
             <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Years of service</p>
             <p className="mt-3 text-amber-50/90">{character.yearsOfService}</p>
+          </div>
+        ) : null}
+
+        {character.conditions?.length ? (
+          <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Conditions</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {character.conditions.map((item) => (
+                <span key={item} className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-sm text-amber-50/90">
+                  {item}
+                </span>
+              ))}
+            </div>
           </div>
         ) : null}
 

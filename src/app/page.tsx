@@ -4,7 +4,7 @@ import GameClient from "./game-client";
 import { getStoryBootstrap } from "@/lib/turso";
 
 export default async function Home() {
-  const [{ character, world, currentScene }, packageRaw] = await Promise.all([
+  const [{ run, character, world, currentScene }, packageRaw] = await Promise.all([
     getStoryBootstrap(),
     fs.readFile(path.join(process.cwd(), "package.json"), "utf8"),
   ]);
@@ -33,6 +33,8 @@ export default async function Home() {
 
             <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.16em] text-violet-100/80">
               <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">{character.name}</span>
+              <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">Body: {character.bodyState ?? "healthy"}</span>
+              <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">Mind: {character.mindState ?? "clear"}</span>
               {character.role ? (
                 <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">{character.role}</span>
               ) : null}
@@ -42,6 +44,7 @@ export default async function Home() {
               {world.tone ? (
                 <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">{world.tone}</span>
               ) : null}
+              <span className="rounded-full border border-violet-200/10 bg-white/5 px-3 py-1.5">Run: {run.name}</span>
             </div>
           </div>
         </header>
