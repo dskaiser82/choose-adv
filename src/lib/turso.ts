@@ -788,7 +788,7 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
     technologyLevel: options.world?.technologyLevel ?? "Advanced medieval / early renaissance without firearms",
     summary:
       options.world?.summary ??
-      "Veyr is a hard land of rival powers, border intrigue, and quiet violence. Cade operates in the Grey Marches, where decaying loyalties, reconnaissance work, and hidden threats shape every decision.",
+      "Veyr is a hard land of rival powers, border intrigue, and quiet violence. Cade operates in the Grey Marches, where decaying loyalties, reconnaissance work, and hidden threats shape every decision. Bound to Cade's dominant shooting arm is an ancient shadow brace that grants dangerous shadow-based abilities at escalating physical cost.",
     majorPowers: options.world?.majorPowers ?? ["Avaren", "Velkan Marches", "The Free Coast"],
     regions: options.world?.regions ?? ["The Grey Marches"],
     locations: options.world?.locations ?? ["Blackmere"],
@@ -815,6 +815,8 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
         "Infiltration",
         "Assassination",
         "Frontier operations",
+        "Shadow magic",
+        "Shadow brace channeling",
       ],
     bodyState: options.character?.bodyState ?? "healthy",
     mindState: options.character?.mindState ?? "clear",
@@ -1128,6 +1130,34 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
       type: "execute",
       stmt: {
         sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-shadow-brace")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("shadow-brace")},
+            ${sqlString("Ancient Shadow Brace")},
+            ${sqlString("key")},
+            ${sqlString("An ancient magical harness bound to Cade's shooting arm that channels dangerous shadow magic at escalating physical cost.")},
+            0,
+            ${sqlJson({ starter: true, protected: true, magical: true, grants: ["shadow_magic"] })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
           insert into run_inventory (
             run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
           ) values (
@@ -1136,6 +1166,28 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
             1,
             ${sqlString("body")},
             ${sqlJson({ starter: true })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-shadow-brace")},
+            1,
+            ${sqlString("arm")},
+            ${sqlJson({ starter: true, protected: true, magical: true })},
             ${sqlString(now)}
           )
           on conflict(run_id, item_id) do update set
