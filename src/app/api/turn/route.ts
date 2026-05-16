@@ -27,12 +27,15 @@ type TurnPayload = {
     timestamp?: number;
     usedStateFiles?: string[];
     model?: string;
+    contextMode?: "full" | "delta";
     [key: string]: unknown;
   };
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "google/gemini-2.5-flash-lite";
+const FULL_CONTEXT_INTERVAL = 10;
+const MAJOR_FLAG_PREFIXES = ["setback_", "lost_item_"];
 
 function encodeEvent(event: string, data: unknown) {
   const json = JSON.stringify(data);
@@ -46,12 +49,14 @@ function buildFallbackTurn({
   playerRegion,
   playerRole,
   action,
+  contextMode,
 }: {
   playerName: string;
   worldName: string;
   playerRegion?: string;
   playerRole?: string;
   action: string;
+  contextMode: "full" | "delta";
 }): TurnPayload {
   const regionText = playerRegion ? ` in ${playerRegion}` : "";
   const roleText = playerRole ? `${playerRole}` : "traveler";
@@ -74,6 +79,7 @@ function buildFallbackTurn({
       timestamp: Math.floor(Date.now() / 1000),
       usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events"],
       model: MODEL,
+      contextMode,
     },
   };
 }
@@ -105,12 +111,13 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
       timestamp: Math.floor(Date.now() / 1000),
       usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events"],
       model: MODEL,
+      contextMode: fallback.debug?.contextMode ?? "delta",
       ...(payload.debug ?? {}),
     },
   };
 }
 
-function buildNarratorStatePayload(story: StoryBootstrap) {
+function buildFullNarratorStatePayload(story: StoryBootstrap) {
   return {
     run: {
       id: story.run.id,
@@ -127,7 +134,6 @@ function buildNarratorStatePayload(story: StoryBootstrap) {
       mindState: story.character.mindState,
       conditions: story.character.conditions ?? [],
       specializations: story.character.specializations,
-      notes: story.character.notes ?? [],
     },
     world: {
       name: story.world.name,
@@ -137,7 +143,6 @@ function buildNarratorStatePayload(story: StoryBootstrap) {
       majorPowers: story.world.majorPowers,
       regions: story.world.regions,
       locations: story.world.locations,
-      notes: story.world.notes ?? [],
     },
     currentScene: story.currentScene
       ? {
@@ -150,7 +155,6 @@ function buildNarratorStatePayload(story: StoryBootstrap) {
       name: item.name,
       slug: item.slug,
       itemType: item.itemType,
-      description: item.description,
       quantity: item.quantity,
       equippedSlot: item.equippedSlot,
       magical: Boolean(item.metadata?.magical),
@@ -167,13 +171,71 @@ function buildNarratorStatePayload(story: StoryBootstrap) {
       key: flag.flagKey,
       value: flag.flagValue,
     })),
-    recentEvents: story.recentEvents.map((event) => ({
+    recentEvents: story.recentEvents.slice(0, 5).map((event) => ({
       title: event.title,
       summary: event.summary,
       action: event.action,
       createdAt: event.createdAt,
     })),
   };
+}
+
+function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
+  const magicalInventory = story.inventory.filter((item) => Boolean(item.metadata?.magical));
+  const importantFlags = story.flags.filter((flag) => MAJOR_FLAG_PREFIXES.some((prefix) => flag.flagKey.startsWith(prefix)));
+
+  return {
+    run: {
+      name: story.run.name,
+      status: story.run.status,
+    },
+    character: {
+      name: story.character.name,
+      role: story.character.role,
+      region: story.character.region,
+      bodyState: story.character.bodyState,
+      mindState: story.character.mindState,
+      conditions: story.character.conditions ?? [],
+    },
+    currentScene: story.currentScene
+      ? {
+          title: story.currentScene.title,
+          narration: story.currentScene.narration.slice(0, 500),
+          suggestedChoices: story.currentScene.suggestedChoices,
+        }
+      : null,
+    magicalInventory: magicalInventory.map((item) => ({
+      name: item.name,
+      itemType: item.itemType,
+      equippedSlot: item.equippedSlot,
+      abilities: (item.abilities ?? []).map((ability) => ({
+        name: ability.name,
+        cost: ability.cost,
+        downside: ability.downside,
+        tags: ability.tags,
+      })),
+    })),
+    flags: importantFlags.map((flag) => ({
+      key: flag.flagKey,
+      value: flag.flagValue,
+    })),
+    recentEvents: story.recentEvents.slice(0, 3).map((event) => ({
+      title: event.title,
+      summary: event.summary,
+    })),
+  };
+}
+
+function chooseNarratorContextMode(story: StoryBootstrap) {
+  const turnCount = story.recentEvents.filter((event) => event.action && event.action !== "Reset story").length;
+  const hasMajorFlag = story.flags.some((flag) => MAJOR_FLAG_PREFIXES.some((prefix) => flag.flagKey.startsWith(prefix)));
+  const isCritical = [story.character.bodyState, story.character.mindState].some((value) => ["critical", "collapsed", "fractured", "broken"].includes((value ?? "").toLowerCase()));
+
+  if (!story.currentScene) return "full" as const;
+  if (turnCount === 0) return "full" as const;
+  if (turnCount % FULL_CONTEXT_INTERVAL === 0) return "full" as const;
+  if (hasMajorFlag || isCritical) return "full" as const;
+  return "delta" as const;
 }
 
 async function generateTurn(body: {
@@ -185,6 +247,7 @@ async function generateTurn(body: {
   summaryText?: string;
   previousNarration?: string;
 }, story: StoryBootstrap) {
+  const contextMode = chooseNarratorContextMode(story);
   const {
     action = "",
     playerName = story.character.name || "Cade",
@@ -195,13 +258,15 @@ async function generateTurn(body: {
     previousNarration = story.currentScene?.narration,
   } = body;
 
-  const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole });
+  const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode });
   const apiKey = process.env.OPEN_ROUTER_API;
   if (!apiKey) {
     return fallback;
   }
 
-  const narratorState = buildNarratorStatePayload(story);
+  const narratorState = contextMode === "full"
+    ? buildFullNarratorStatePayload(story)
+    : buildDeltaNarratorStatePayload(story);
 
   const systemPrompt = [
     "You are the game master for a personal dark fantasy roleplaying game.",
@@ -227,6 +292,7 @@ async function generateTurn(body: {
   ].join("\n");
 
   const userPrompt = [
+    `Context mode: ${contextMode}`,
     `Player action: ${action}`,
     previousNarration ? `Previous narration: ${previousNarration}` : null,
     `Campaign summary: ${summaryText}`,
