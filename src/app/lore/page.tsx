@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getStoryBootstrap } from "@/lib/turso";
 
 export default async function LorePage() {
-  const { world, currentScene } = await getStoryBootstrap();
+  const { world, currentScene, inventory, flags } = await getStoryBootstrap();
 
   return (
     <main className="min-h-screen bg-[#120d0a] bg-[linear-gradient(180deg,_#1b140f_0%,_#120d0a_100%)] px-4 py-6 text-[#f5e7c8] md:px-8 md:py-8">
@@ -78,6 +78,30 @@ export default async function LorePage() {
                   {location}
                 </span>
               ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Inventory</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {inventory.length ? inventory.map((item) => (
+                <span key={item.itemId} className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-sm text-amber-50/90">
+                  {item.name} x{item.quantity} · {item.itemType}
+                </span>
+              )) : <span className="text-amber-50/70">No items yet</span>}
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Flags</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {flags.length ? flags.map((flag) => (
+                <span key={flag.flagKey} className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-sm text-amber-50/90">
+                  {flag.flagKey}: {flag.flagValue}
+                </span>
+              )) : <span className="text-amber-50/70">No flags yet</span>}
             </div>
           </div>
         </div>

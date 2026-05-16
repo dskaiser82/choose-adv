@@ -44,12 +44,6 @@ type TurnHistoryEntry = {
   createdAt: number;
 };
 
-type PersistedGameState = {
-  actionDraft: string;
-  currentTurn: TurnResponse;
-  history: TurnHistoryEntry[];
-  revealSpeed: number;
-};
 
 type AudioPlaybackState = "idle" | "loading" | "ready" | "playing" | "blocked" | "error";
 
@@ -62,7 +56,6 @@ type GameClientProps = {
   releaseVersion: string;
 };
 
-const STORAGE_KEY = "choose-adventure-mvp-state";
 const DEFAULT_REVEAL_SPEED = 1500;
 const CARD_FADE_MS = 420;
 const DEFAULT_PHONE_CARD_WORD_LIMIT = 34;
@@ -140,7 +133,6 @@ export default function GameClient({
   const [showRecap, setShowRecap] = useState(false);
   const [showStoryDetails, setShowStoryDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
   const [turn, setTurn] = useState<TurnResponse>(initialTurn);
   const [history, setHistory] = useState<TurnHistoryEntry[]>([]);
   const [revealSpeed, setRevealSpeed] = useState(DEFAULT_REVEAL_SPEED);
@@ -177,27 +169,6 @@ export default function GameClient({
       .join(" • ");
   }, [playerName, playerRegion, playerRole, worldName]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        setHydrated(true);
-        return;
-      }
-
-      const parsed = JSON.parse(raw) as Partial<PersistedGameState>;
-      if (parsed.actionDraft) setAction(parsed.actionDraft);
-      if (parsed.currentTurn) setTurn(parsed.currentTurn);
-      if (Array.isArray(parsed.history)) setHistory(parsed.history);
-      if (typeof parsed.revealSpeed === "number") setRevealSpeed(parsed.revealSpeed);
-    } catch {
-      // Ignore bad local state and continue with defaults.
-    } finally {
-      setHydrated(true);
-    }
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -211,16 +182,6 @@ export default function GameClient({
     return () => window.removeEventListener("resize", updateWordLimit);
   }, []);
 
-  useEffect(() => {
-    if (!hydrated || typeof window === "undefined") return;
-    const payload: PersistedGameState = {
-      actionDraft: action,
-      currentTurn: turn,
-      history,
-      revealSpeed,
-    };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [action, turn, history, revealSpeed, hydrated]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -390,9 +351,6 @@ export default function GameClient({
       audioRef.current.load();
     }
     resetStoryMode();
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
   }
 
   function goToNextCard() {
@@ -748,7 +706,7 @@ export default function GameClient({
             </div>
 
             {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-            {!hydrated ? <p className="text-sm text-violet-200/60">Restoring saved browser session...</p> : null}
+            <p className="text-sm text-violet-200/60">State is stored in Turso. Browser local save is disabled so there’s only one source of truth.</p>
 
             <div className="flex flex-wrap items-center gap-3">
               <button

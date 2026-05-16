@@ -1,12 +1,14 @@
 {
   "name": "choose-adventure",
-  "version": "0.1.33",
+  "version": "0.1.35",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:soft": "node scripts/run-soft-checks.js",
+    "verify": "npm run build && npm run test:soft"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.46.0",
