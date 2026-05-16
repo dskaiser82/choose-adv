@@ -13,7 +13,9 @@ const source = fs.readFileSync('/home/gobotmini/code/choose-adventure/src/lib/tu
   'create table if not exists items',
   'create table if not exists run_inventory',
   'create table if not exists run_flags',
+  'create table if not exists run_discoveries',
   'export async function persistTurn',
+  'export async function persistDiscovery',
   'export async function getStoryBootstrap',
   'export async function resetStoryRun',
 ].forEach((needle) => assert.match(source, new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
@@ -21,6 +23,7 @@ const source = fs.readFileSync('/home/gobotmini/code/choose-adventure/src/lib/tu
 assert.doesNotMatch(source, /localStorage/);
 assert.match(source, /inventory:/);
 assert.match(source, /flags:/);
+assert.match(source, /discoveries:/);
 assert.match(source, /bodyState/);
 assert.match(source, /mindState/);
 assert.match(source, /conditions/);
@@ -31,6 +34,7 @@ assert.match(source, /item_type/);
 assert.match(source, /abilities/);
 assert.match(source, /parseInventoryAbilities/);
 assert.match(source, /Veil Step/);
+assert.match(source, /Campfire in the Woods/);
 assert.match(source, /run_turns/);
 assert.match(source, /run_events/);
 

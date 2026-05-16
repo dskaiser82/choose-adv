@@ -83,6 +83,16 @@ export type FlagRecord = {
   updatedAt: string;
 };
 
+export type DiscoveryRecord = {
+  id: string;
+  discoveryType: string;
+  key: string;
+  name: string;
+  summary: string;
+  details?: string | null;
+  createdAt: string;
+};
+
 export type StoryBootstrap = {
   run: RunRecord;
   character: CharacterRecord;
@@ -91,6 +101,16 @@ export type StoryBootstrap = {
   recentEvents: EventRecord[];
   inventory: InventoryRecord[];
   flags: FlagRecord[];
+  discoveries: DiscoveryRecord[];
+};
+
+export type PersistDiscoveryInput = {
+  runId?: string;
+  discoveryType: string;
+  key: string;
+  name: string;
+  summary: string;
+  details?: string | null;
 };
 
 export type PersistTurnInput = {
@@ -367,6 +387,44 @@ async function setFlag(runId: string, flagKey: string, flagValue: string) {
           on conflict(run_id, flag_key) do update set
             flag_value = excluded.flag_value,
             updated_at = excluded.updated_at
+        `,
+      },
+    },
+  ]);
+}
+
+export async function persistDiscovery({
+  runId,
+  discoveryType,
+  key,
+  name,
+  summary,
+  details,
+}: PersistDiscoveryInput) {
+  await ensureSchema();
+  const activeRunId = runId ?? DEFAULT_RUN_ID;
+  const now = isoNow();
+  await tursoPipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_discoveries (
+            id, run_id, discovery_type, discovery_key, name, summary, details, created_at
+          ) values (
+            ${sqlString(crypto.randomUUID())},
+            ${sqlString(activeRunId)},
+            ${sqlString(discoveryType)},
+            ${sqlString(key)},
+            ${sqlString(name)},
+            ${sqlString(summary)},
+            ${sqlNullableString(details ?? null)},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, discovery_type, discovery_key) do update set
+            name = excluded.name,
+            summary = excluded.summary,
+            details = excluded.details
         `,
       },
     },
@@ -655,6 +713,24 @@ export async function ensureSchema() {
       type: "execute",
       stmt: {
         sql: `
+          create table if not exists run_discoveries (
+            id text primary key,
+            run_id text not null,
+            discovery_type text not null,
+            discovery_key text not null,
+            name text not null,
+            summary text not null,
+            details text,
+            created_at text not null,
+            unique(run_id, discovery_type, discovery_key)
+          )
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
           create table if not exists authored_scenes (
             id text primary key,
             campaign_id text not null,
@@ -819,7 +895,7 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
       "Veyr is a hard land of rival powers, border intrigue, and quiet violence. Cade operates in the Grey Marches, where decaying loyalties, reconnaissance work, and hidden threats shape every decision. Bound to Cade's dominant shooting arm is an ancient shadow brace that grants dangerous shadow-based abilities at escalating physical cost.",
     majorPowers: options.world?.majorPowers ?? ["Avaren", "Velkan Marches", "The Free Coast"],
     regions: options.world?.regions ?? ["The Grey Marches"],
-    locations: options.world?.locations ?? ["Blackmere"],
+    locations: options.world?.locations ?? ["The Deep Woods"],
     notes: options.world?.notes ?? [],
   };
 
@@ -828,7 +904,7 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
     name: options.character?.name ?? "Cade",
     status: options.character?.status ?? "alive",
     kingdom: options.character?.kingdom ?? "Avaren",
-    region: options.character?.region ?? "The Grey Marches",
+    region: options.character?.region ?? "The Deep Woods",
     formerAffiliation: options.character?.formerAffiliation ?? "Black Veil Corps",
     role: options.character?.role ?? "Frontier reconnaissance operative",
     yearsOfService: options.character?.yearsOfService ?? 11,
@@ -855,10 +931,10 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
   const scene: SceneRecord = {
     id: options.scene?.id ?? crypto.randomUUID(),
     sceneKey: options.scene?.sceneKey ?? "start",
-    title: options.scene?.title ?? "Campfire in the Grey Marches",
+    title: options.scene?.title ?? "Campfire in the Woods",
     narration:
       options.scene?.narration ??
-      "Night has settled over the Grey Marches. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. The next move will decide whether this is a quiet night of planning or the beginning of trouble.",
+      "Night has settled deep in the woods. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. He knows only the trees, the cold, and the uneasy sense that something in the wilderness is watching back.",
     suggestedChoices:
       options.scene?.suggestedChoices ??
       [
@@ -1065,6 +1141,14 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
   }
 
   await ensureDefaultInventoryAndFlags(DEFAULT_RUN_ID);
+  await persistDiscovery({
+    runId: DEFAULT_RUN_ID,
+    discoveryType: "location",
+    key: "woods_campfire",
+    name: "Campfire in the Woods",
+    summary: "Cade begins alone in the deep woods beside a low campfire, with only the immediate forest and darkness known for certain.",
+    details: "This is an opening scene anchor, not a known town or route.",
+  });
 }
 
 async function ensureDefaultInventoryAndFlags(runId: string) {
@@ -1308,7 +1392,7 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
           insert into run_flags (run_id, flag_key, flag_value, updated_at) values (
             ${sqlString(runId)},
             ${sqlString("starting_region")},
-            ${sqlString("Grey Marches")},
+            ${sqlString("Deep Woods")},
             ${sqlString(now)}
           )
           on conflict(run_id, flag_key) do update set
@@ -1770,7 +1854,7 @@ export async function upsertSampleStoryState() {
     id: crypto.randomUUID(),
     eventKey: `sample-${sceneTime}`,
     title: "Schema update complete",
-    summary: "The campaign now runs through canonical run_state, turns, inventory, flags, and narrative condition tables.",
+    summary: "The campaign now runs through canonical run_state, turns, inventory, flags, discoveries, and narrative condition tables.",
     action: "Migration / schema cleanup",
     createdAt: sceneTime,
   });
@@ -1791,6 +1875,7 @@ export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
     { type: "execute", stmt: { sql: `delete from run_events where run_id = ${sqlString(runId)}` } },
     { type: "execute", stmt: { sql: `delete from run_inventory where run_id = ${sqlString(runId)}` } },
     { type: "execute", stmt: { sql: `delete from run_flags where run_id = ${sqlString(runId)}` } },
+    { type: "execute", stmt: { sql: `delete from run_discoveries where run_id = ${sqlString(runId)}` } },
   ]);
 
   await seedCanonicalDefaults({
@@ -1799,13 +1884,14 @@ export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
       mindState: "clear",
       conditions: [],
       notes: [],
+      region: "The Deep Woods",
     },
     scene: {
       id: crypto.randomUUID(),
       sceneKey: "start",
-      title: "Campfire in the Grey Marches",
+      title: "Campfire in the Woods",
       narration:
-        "Night has settled over the Grey Marches. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. The next move will decide whether this is a quiet night of planning or the beginning of trouble.",
+        "Night has settled deep in the woods. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. He knows only the trees, the cold, and the uneasy sense that something in the wilderness is watching back.",
       suggestedChoices: [
         "Study the darkness beyond the firelight",
         "Inspect the shadow brace and feel for its pull",
@@ -1840,6 +1926,7 @@ export async function getTableCounts() {
     { type: "execute", stmt: { sql: "select count(*) from items" } },
     { type: "execute", stmt: { sql: "select count(*) from run_inventory" } },
     { type: "execute", stmt: { sql: "select count(*) from run_flags" } },
+    { type: "execute", stmt: { sql: "select count(*) from run_discoveries" } },
     { type: "execute", stmt: { sql: "select count(*) from authored_scenes" } },
   ]);
 
@@ -1853,7 +1940,8 @@ export async function getTableCounts() {
     items: Number(rowValue(rows(payload, 6)[0], 0) ?? 0),
     inventory: Number(rowValue(rows(payload, 7)[0], 0) ?? 0),
     flags: Number(rowValue(rows(payload, 8)[0], 0) ?? 0),
-    scenes: Number(rowValue(rows(payload, 9)[0], 0) ?? 0),
+    discoveries: Number(rowValue(rows(payload, 9)[0], 0) ?? 0),
+    scenes: Number(rowValue(rows(payload, 10)[0], 0) ?? 0),
   };
 }
 
@@ -1887,6 +1975,12 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
           sql: `select flag_key, flag_value, updated_at from run_flags where run_id = ${sqlString(runId)} order by flag_key asc`,
         },
       },
+      {
+        type: "execute",
+        stmt: {
+          sql: `select id, discovery_type, discovery_key, name, summary, details, created_at from run_discoveries where run_id = ${sqlString(runId)} order by created_at desc limit 20`,
+        },
+      },
     ]),
   ]);
 
@@ -1897,6 +1991,7 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
   const eventRows = rows(payload, 0);
   const inventoryRows = rows(payload, 1);
   const flagRows = rows(payload, 2);
+  const discoveryRows = rows(payload, 3);
 
   return {
     run: {
@@ -1970,6 +2065,15 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
       flagKey: rowValue(row, 0) ?? "unknown_flag",
       flagValue: rowValue(row, 1) ?? "",
       updatedAt: rowValue(row, 2) ?? isoNow(),
+    })),
+    discoveries: discoveryRows.map((row) => ({
+      id: rowValue(row, 0) ?? crypto.randomUUID(),
+      discoveryType: rowValue(row, 1) ?? "fact",
+      key: rowValue(row, 2) ?? "unknown",
+      name: rowValue(row, 3) ?? "Unknown discovery",
+      summary: rowValue(row, 4) ?? "",
+      details: rowValue(row, 5),
+      createdAt: rowValue(row, 6) ?? isoNow(),
     })),
   };
 }
