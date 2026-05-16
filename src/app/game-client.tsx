@@ -44,7 +44,6 @@ type TurnHistoryEntry = {
   createdAt: number;
 };
 
-
 type AudioPlaybackState = "idle" | "loading" | "ready" | "playing" | "blocked" | "error";
 
 type GameClientProps = {
@@ -130,7 +129,6 @@ export default function GameClient({
   const [action, setAction] = useState("");
   const [loading, setLoading] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
-  const [showRecap, setShowRecap] = useState(false);
   const [showStoryDetails, setShowStoryDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turn, setTurn] = useState<TurnResponse>(initialTurn);
@@ -145,8 +143,6 @@ export default function GameClient({
   const [phoneCardWordLimit, setPhoneCardWordLimit] = useState(DEFAULT_PHONE_CARD_WORD_LIMIT);
   const [audioPlaybackState, setAudioPlaybackState] = useState<AudioPlaybackState>("idle");
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
-  const [dbTestState, setDbTestState] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [dbTestMessage, setDbTestMessage] = useState<string | null>(null);
   const [resetState, setResetState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -169,7 +165,6 @@ export default function GameClient({
       .join(" • ");
   }, [playerName, playerRegion, playerRole, worldName]);
 
-
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -181,7 +176,6 @@ export default function GameClient({
     window.addEventListener("resize", updateWordLimit);
     return () => window.removeEventListener("resize", updateWordLimit);
   }, []);
-
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -278,6 +272,7 @@ export default function GameClient({
       }
 
       analyser.getByteFrequencyData(data);
+
       let sum = 0;
       for (const value of data) sum += value;
       const average = data.length ? sum / data.length / 255 : 0;
@@ -342,7 +337,6 @@ export default function GameClient({
     setHistory([]);
     setTurn(initialTurn);
     setShowOverlay(false);
-    setShowRecap(false);
     setAudioPlaybackState("idle");
     setAudioStatusMessage(null);
     if (audioRef.current) {
@@ -423,39 +417,6 @@ export default function GameClient({
     }
   }
 
-  async function runDatabaseTest() {
-    setDbTestState("loading");
-    setDbTestMessage("Testing Turso save/read...");
-
-    try {
-      const response = await fetch("/api/turso-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            ok?: boolean;
-            error?: string;
-            tableCounts?: { world?: number; character?: number; scene?: number; event?: number };
-            state?: { currentScene?: { title?: string | null } | null };
-          }
-        | null;
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error ?? `DB test failed: ${response.status}`);
-      }
-
-      setDbTestState("success");
-      setDbTestMessage(
-        `Turso ok: world ${payload.tableCounts?.world ?? 0}, character ${payload.tableCounts?.character ?? 0}, scene ${payload.tableCounts?.scene ?? 0}, event ${payload.tableCounts?.event ?? 0}; current scene ${payload.state?.currentScene?.title ?? "?"}`,
-      );
-    } catch (err) {
-      setDbTestState("error");
-      setDbTestMessage(err instanceof Error ? err.message : "Database test failed.");
-    }
-  }
-
   async function resetStory() {
     setResetState("loading");
     setResetMessage("Resetting story...");
@@ -467,7 +428,7 @@ export default function GameClient({
       });
 
       const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; error?: string; tableCounts?: { world?: number; character?: number; scene?: number; event?: number } }
+        | { ok?: boolean; error?: string }
         | null;
 
       if (!response.ok || !payload?.ok) {
@@ -476,9 +437,7 @@ export default function GameClient({
 
       resetSession();
       setResetState("success");
-      setResetMessage(
-        `Story reset: world ${payload.tableCounts?.world ?? 0}, character ${payload.tableCounts?.character ?? 0}, scene ${payload.tableCounts?.scene ?? 0}, event ${payload.tableCounts?.event ?? 0}`,
-      );
+      setResetMessage("Story reset to a clean starting point.");
     } catch (err) {
       setResetState("error");
       setResetMessage(err instanceof Error ? err.message : "Reset failed.");
@@ -627,17 +586,17 @@ export default function GameClient({
   }
 
   const shouldShowOverlay = showOverlay;
-  const currentCardWords = displayedCardText ? countWords(displayedCardText) : 0;
   const actionChoices = turn.suggestedChoices.slice(0, 4);
   const orbScale = 1 + orbLevel * 0.22;
   const orbGlow = 0.28 + orbLevel * 0.4;
   const orbHaloScale = 1 + orbLevel * 0.32;
   const orbSubtitle = displayedCardText || (loading ? "Gathering the next beat of the story..." : turn.narration);
   const hasCardPagination = storyCards.length > 1;
+  const latestTurn = history.length ? history[history.length - 1] : null;
 
   return (
     <>
-      <section className="rounded-[30px] border border-violet-300/15 bg-[linear-gradient(180deg,rgba(14,9,28,0.96),rgba(6,5,14,0.98))] p-4 shadow-[0_0_0_1px_rgba(196,181,253,0.04),0_24px_80px_rgba(0,0,0,0.45)] md:p-6">
+      <section className="space-y-4 rounded-[30px] border border-violet-300/15 bg-[linear-gradient(180deg,rgba(14,9,28,0.96),rgba(6,5,14,0.98))] p-4 shadow-[0_0_0_1px_rgba(196,181,253,0.04),0_24px_80px_rgba(0,0,0,0.45)] md:p-6">
         <audio
           ref={audioRef}
           preload="auto"
@@ -706,7 +665,7 @@ export default function GameClient({
             </div>
 
             {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-            <p className="text-sm text-violet-200/60">State is stored in Turso. Browser local save is disabled so there’s only one source of truth.</p>
+            <p className="text-sm text-violet-200/60">State is stored in Turso. The next move is the primary control; everything else stays available lower on the page when you need it.</p>
 
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -739,23 +698,6 @@ export default function GameClient({
 
               <button
                 type="button"
-                onClick={() => setShowRecap((prev) => !prev)}
-                className="rounded-full border border-violet-300/20 bg-white/5 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-violet-100 transition hover:bg-white/10"
-              >
-                {showRecap ? "Hide recap" : "Show recap"}
-              </button>
-
-              <button
-                type="button"
-                onClick={runDatabaseTest}
-                disabled={dbTestState === "loading"}
-                className="rounded-full border border-emerald-300/20 bg-emerald-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-50 transition hover:bg-emerald-200/15 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {dbTestState === "loading" ? "Testing Turso" : "Test Turso DB"}
-              </button>
-
-              <button
-                type="button"
                 onClick={resetStory}
                 disabled={resetState === "loading"}
                 className="rounded-full border border-amber-300/20 bg-amber-200/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-amber-50 transition hover:bg-amber-200/15 disabled:cursor-not-allowed disabled:opacity-50"
@@ -766,64 +708,64 @@ export default function GameClient({
           </form>
         </div>
 
-        <div className="mt-4 rounded-[24px] border border-violet-200/10 bg-black/20 p-4 md:p-5">
-          <button
-            type="button"
-            onClick={() => setShowStoryDetails((prev) => !prev)}
-            className="flex w-full items-center justify-between gap-4 text-left"
-          >
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-violet-300/70">Story panel</p>
-              <h3 className="mt-2 text-xl font-semibold text-white md:text-2xl">{turn.sceneTitle}</h3>
-            </div>
-            <span className="rounded-full border border-violet-300/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-violet-100/80">
-              {showStoryDetails ? "Hide" : "Show"}
-            </span>
-          </button>
-
-          {showStoryDetails ? (
-            <div className="mt-4 animate-fadeIn rounded-[24px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5">
-              <div ref={narrationBoxRef} className="max-h-[52vh] overflow-y-auto">
-                <p className="whitespace-pre-wrap text-base leading-8 text-violet-50/95 md:text-lg">{turn.narration}</p>
+        <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="rounded-[24px] border border-violet-200/10 bg-black/20 p-4 md:p-5">
+            <button
+              type="button"
+              onClick={() => setShowStoryDetails((prev) => !prev)}
+              className="flex w-full items-center justify-between gap-4 text-left"
+            >
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.28em] text-violet-300/70">Story</p>
+                <h3 className="mt-2 text-xl font-semibold text-white md:text-2xl">{turn.sceneTitle}</h3>
               </div>
+              <span className="rounded-full border border-violet-300/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-violet-100/80">
+                {showStoryDetails ? "Hide" : "Show"}
+              </span>
+            </button>
+
+            {showStoryDetails ? (
+              <div className="mt-4 animate-fadeIn rounded-[24px] border border-violet-200/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] p-4 md:p-5">
+                <div ref={narrationBoxRef} className="max-h-[44vh] overflow-y-auto">
+                  <p className="whitespace-pre-wrap text-base leading-8 text-violet-50/95 md:text-lg">{turn.narration}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm leading-7 text-violet-100/72">Latest scene hidden. Scroll down only when you want the full catch-up.</p>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-[24px] border border-violet-200/10 bg-black/20 p-4 md:p-5">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-violet-300/70">Quick context</p>
+              <div className="mt-4 space-y-3 text-sm text-violet-100/80">
+                <p><span className="font-semibold text-violet-50">Current scene:</span> {turn.sceneTitle}</p>
+                <p><span className="font-semibold text-violet-50">Saved turns:</span> {history.length}</p>
+                {audioStatusMessage ? <p><span className="font-semibold text-violet-50">Voice:</span> {audioStatusMessage}</p> : null}
+              </div>
+              {latestTurn ? (
+                <div className="mt-4 rounded-2xl border border-violet-200/10 bg-white/5 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-violet-300/70">Last player turn</p>
+                  <p className="mt-2 text-sm leading-7 text-violet-50/90">{latestTurn.action}</p>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+
+            {(resetMessage || summaryText) ? (
+              <div className="rounded-[20px] border border-violet-200/10 bg-black/15 p-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-violet-300/70">Lower priority</p>
+                {resetMessage ? (
+                  <p className={`mt-3 text-sm ${resetState === "error" ? "text-rose-300" : "text-amber-100/85"}`}>
+                    {resetMessage}
+                  </p>
+                ) : null}
+                <p className="mt-3 text-sm leading-7 text-violet-100/65">
+                  Story seed: {summaryText.slice(0, 160)}{summaryText.length > 160 ? "..." : ""}
+                </p>
+              </div>
+            ) : null}
+          </div>
         </div>
-
-        {showRecap ? (
-          <div className="mt-4 rounded-[24px] border border-violet-200/10 bg-black/20 p-4 md:p-5">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-violet-300/70">Recap</p>
-            <p className="mt-3 text-sm leading-7 text-violet-100/78">
-              Summary seed: {summaryText.slice(0, 220)}
-              {summaryText.length > 220 ? "..." : ""}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs uppercase tracking-[0.14em] text-violet-100/80">
-              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Voice {turn.ttsMode}</span>
-              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Saved turns {history.length}</span>
-              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Card target ~{phoneCardWordLimit} words</span>
-              <span className="rounded-full border border-violet-300/20 bg-white/5 px-3 py-1.5">Fade {(revealSpeed / 1000).toFixed(1)}s</span>
-            </div>
-            {audioStatusMessage ? <p className="mt-4 text-sm text-fuchsia-100/80">{audioStatusMessage}</p> : null}
-          </div>
-        ) : null}
-
-        {dbTestMessage ? (
-          <div className="mt-4 rounded-[20px] border border-emerald-300/15 bg-emerald-200/5 p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-200/75">Turso test</p>
-            <p className={`mt-2 text-sm ${dbTestState === "error" ? "text-rose-300" : "text-emerald-100/85"}`}>
-              {dbTestMessage}
-            </p>
-          </div>
-        ) : null}
-
-        {resetMessage ? (
-          <div className="mt-4 rounded-[20px] border border-amber-300/15 bg-amber-200/5 p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-amber-200/75">Story reset</p>
-            <p className={`mt-2 text-sm ${resetState === "error" ? "text-rose-300" : "text-amber-100/85"}`}>
-              {resetMessage}
-            </p>
-          </div>
-        ) : null}
       </section>
 
       {shouldShowOverlay ? (
