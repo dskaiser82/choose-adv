@@ -1,9 +1,0 @@
-{
-  "events": [
-    {
-      "id": 1,
-      "type": "world_creation",
-      "details": "The world of Veyr and the character Cade were established."
-    }
-  ]
-}

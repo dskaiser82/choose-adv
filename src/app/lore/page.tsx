@@ -85,11 +85,25 @@ export default async function LorePage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-[24px] border border-amber-300/20 bg-black/20 p-5">
             <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Inventory</p>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 space-y-4">
               {inventory.length ? inventory.map((item) => (
-                <span key={item.itemId} className="rounded-full border border-amber-200/10 bg-amber-50/5 px-3 py-1.5 text-sm text-amber-50/90">
-                  {item.name} x{item.quantity} · {item.itemType}
-                </span>
+                <div key={item.itemId} className="rounded-2xl border border-amber-200/10 bg-amber-50/5 p-4">
+                  <p className="text-sm font-semibold text-amber-50/95">{item.name} x{item.quantity} · {item.itemType}</p>
+                  {item.description ? <p className="mt-2 text-sm leading-6 text-amber-50/75">{item.description}</p> : null}
+                  {item.abilities?.length ? (
+                    <div className="mt-3 space-y-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-amber-200/55">Granted abilities</p>
+                      {item.abilities.map((ability) => (
+                        <div key={ability.key} className="rounded-xl border border-amber-200/10 bg-black/15 p-3">
+                          <p className="text-sm font-semibold text-amber-50/95">{ability.name}</p>
+                          <p className="mt-1 text-sm leading-6 text-amber-50/80">{ability.description}</p>
+                          <p className="mt-2 text-sm text-amber-100/75"><span className="font-semibold">Cost:</span> {ability.cost}</p>
+                          <p className="mt-1 text-sm text-amber-100/75"><span className="font-semibold">Downside:</span> {ability.downside}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               )) : <span className="text-amber-50/70">No items yet</span>}
             </div>
           </div>

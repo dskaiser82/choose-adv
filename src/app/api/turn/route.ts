@@ -1,3 +1,4 @@
+import { getStoryBootstrap, type StoryBootstrap } from "@/lib/turso";
 import { persistTurn } from "@/lib/turso";
 
 type TurnPayload = {
@@ -71,7 +72,7 @@ function buildFallbackTurn({
     debug: {
       generator: "openclaw-fallback",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["turso:story_character", "turso:story_world", "turso:story_scene", "turso:story_events"],
+      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events"],
       model: MODEL,
     },
   };
@@ -109,6 +110,72 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
   };
 }
 
+function buildNarratorStatePayload(story: StoryBootstrap) {
+  return {
+    run: {
+      id: story.run.id,
+      name: story.run.name,
+      status: story.run.status,
+    },
+    character: {
+      name: story.character.name,
+      status: story.character.status,
+      role: story.character.role,
+      region: story.character.region,
+      kingdom: story.character.kingdom,
+      bodyState: story.character.bodyState,
+      mindState: story.character.mindState,
+      conditions: story.character.conditions ?? [],
+      specializations: story.character.specializations,
+      notes: story.character.notes ?? [],
+    },
+    world: {
+      name: story.world.name,
+      tone: story.world.tone,
+      technologyLevel: story.world.technologyLevel,
+      summary: story.world.summary,
+      majorPowers: story.world.majorPowers,
+      regions: story.world.regions,
+      locations: story.world.locations,
+      notes: story.world.notes ?? [],
+    },
+    currentScene: story.currentScene
+      ? {
+          title: story.currentScene.title,
+          narration: story.currentScene.narration,
+          suggestedChoices: story.currentScene.suggestedChoices,
+        }
+      : null,
+    inventory: story.inventory.map((item) => ({
+      name: item.name,
+      slug: item.slug,
+      itemType: item.itemType,
+      description: item.description,
+      quantity: item.quantity,
+      equippedSlot: item.equippedSlot,
+      magical: Boolean(item.metadata?.magical),
+      protected: Boolean(item.metadata?.protected),
+      abilities: (item.abilities ?? []).map((ability) => ({
+        name: ability.name,
+        description: ability.description,
+        cost: ability.cost,
+        downside: ability.downside,
+        tags: ability.tags,
+      })),
+    })),
+    flags: story.flags.map((flag) => ({
+      key: flag.flagKey,
+      value: flag.flagValue,
+    })),
+    recentEvents: story.recentEvents.map((event) => ({
+      title: event.title,
+      summary: event.summary,
+      action: event.action,
+      createdAt: event.createdAt,
+    })),
+  };
+}
+
 async function generateTurn(body: {
   action?: string;
   playerName?: string;
@@ -117,15 +184,15 @@ async function generateTurn(body: {
   playerRole?: string;
   summaryText?: string;
   previousNarration?: string;
-}) {
+}, story: StoryBootstrap) {
   const {
     action = "",
-    playerName = "Cade",
-    worldName = "Veyr",
-    playerRegion,
-    playerRole,
-    summaryText = "",
-    previousNarration,
+    playerName = story.character.name || "Cade",
+    worldName = story.world.name || "Veyr",
+    playerRegion = story.character.region ?? undefined,
+    playerRole = story.character.role ?? undefined,
+    summaryText = story.world.summary ?? "",
+    previousNarration = story.currentScene?.narration,
   } = body;
 
   const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole });
@@ -134,32 +201,37 @@ async function generateTurn(body: {
     return fallback;
   }
 
+  const narratorState = buildNarratorStatePayload(story);
+
   const systemPrompt = [
     "You are the game master for a personal dark fantasy roleplaying game.",
+    "The database-backed narrator state provided by the app is canonical truth.",
+    "You must ground narration and choices in the provided state.",
+    "Do not invent new items, magical abilities, world facts, or conditions unless clearly justified by existing state and immediate scene logic.",
+    "If an ability is item-granted, only use it if it appears in the narrator state payload.",
+    "If a magical ability has a cost or downside, reflect that in your narration and suggested updates when relevant.",
     "Return ONLY valid JSON with this exact shape:",
     '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","bodyState":"wounded","mindState":"stressed","conditions":["arrow_shoulder"],"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:runs","turso:run_state","turso:run_turns","turso:run_events"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
     "- Keep narration to 3-5 short paragraphs max",
-    "- Suggested choices must be grounded in the scene",
+    "- Suggested choices must be grounded in the current scene and actual available state",
     "- Only include worldUpdate or characterUpdate fields when something meaningful changed",
     "- Prefer narrative condition changes over numeric damage",
     "- Use bodyState values like healthy, strained, wounded, critical, collapsed",
     "- Use mindState values like clear, stressed, shaken, fractured, broken",
     "- Conditions should be concrete tags like arrow_shoulder, limping, bleeding, exhausted, watched_by_guard",
     "- Keep updates conservative and cumulative",
+    "- Treat the narrator state payload as authoritative canon for gear, abilities, flags, and current context",
   ].join("\n");
 
   const userPrompt = [
-    `Player: ${playerName}`,
-    `World: ${worldName}`,
-    `Action: ${action}`,
+    `Player action: ${action}`,
     previousNarration ? `Previous narration: ${previousNarration}` : null,
-    playerRegion ? `Region: ${playerRegion}` : null,
-    playerRole ? `Role: ${playerRole}` : null,
-    "Latest event: The world of Veyr and the character Cade were established.",
     `Campaign summary: ${summaryText}`,
+    "Canonical narrator state payload:",
+    JSON.stringify(narratorState, null, 2),
   ].filter(Boolean).join("\n\n");
 
   try {
@@ -177,8 +249,8 @@ async function generateTurn(body: {
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.8,
-        max_tokens: 900,
+        temperature: 0.7,
+        max_tokens: 1100,
         response_format: { type: "json_object" },
       }),
     });
@@ -209,7 +281,8 @@ async function generateTurn(body: {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const turn = await generateTurn(body ?? {});
+  const story = await getStoryBootstrap();
+  const turn = await generateTurn(body ?? {}, story);
 
   await persistTurn({
     action: typeof body?.action === "string" ? body.action : "",

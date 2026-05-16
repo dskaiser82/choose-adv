@@ -28,6 +28,9 @@ assert.match(source, /applySetbackIfNeeded/);
 assert.match(source, /classifySetback/);
 assert.match(source, /recovering/);
 assert.match(source, /item_type/);
+assert.match(source, /abilities/);
+assert.match(source, /parseInventoryAbilities/);
+assert.match(source, /Veil Step/);
 assert.match(source, /run_turns/);
 assert.match(source, /run_events/);
 

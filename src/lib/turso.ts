@@ -56,6 +56,15 @@ export type RunRecord = {
   updatedAt: string;
 };
 
+export type InventoryAbilityRecord = {
+  key: string;
+  name: string;
+  description: string;
+  cost: string;
+  downside: string;
+  tags: string[];
+};
+
 export type InventoryRecord = {
   itemId: string;
   slug: string;
@@ -65,6 +74,7 @@ export type InventoryRecord = {
   quantity: number;
   equippedSlot?: string | null;
   metadata?: Record<string, unknown> | null;
+  abilities?: InventoryAbilityRecord[];
 };
 
 export type FlagRecord = {
@@ -200,6 +210,24 @@ function parseJsonObject(value: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+function parseInventoryAbilities(metadata: Record<string, unknown> | null) {
+  const raw = metadata?.abilities;
+  if (!Array.isArray(raw)) return [] as InventoryAbilityRecord[];
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const value = entry as Record<string, unknown>;
+    if (typeof value.key !== "string" || typeof value.name !== "string" || typeof value.description !== "string") return [];
+    return [{
+      key: value.key,
+      name: value.name,
+      description: typeof value.description === "string" ? value.description : "",
+      cost: typeof value.cost === "string" ? value.cost : "",
+      downside: typeof value.downside === "string" ? value.downside : "",
+      tags: Array.isArray(value.tags) ? value.tags.filter((tag): tag is string => typeof tag === "string") : [],
+    }];
+  });
 }
 
 function isoNow() {
@@ -788,7 +816,7 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
     technologyLevel: options.world?.technologyLevel ?? "Advanced medieval / early renaissance without firearms",
     summary:
       options.world?.summary ??
-      "Veyr is a hard land of rival powers, border intrigue, and quiet violence. Cade operates in the Grey Marches, where decaying loyalties, reconnaissance work, and hidden threats shape every decision.",
+      "Veyr is a hard land of rival powers, border intrigue, and quiet violence. Cade operates in the Grey Marches, where decaying loyalties, reconnaissance work, and hidden threats shape every decision. Bound to Cade's dominant shooting arm is an ancient shadow brace that grants dangerous shadow-based abilities at escalating physical cost.",
     majorPowers: options.world?.majorPowers ?? ["Avaren", "Velkan Marches", "The Free Coast"],
     regions: options.world?.regions ?? ["The Grey Marches"],
     locations: options.world?.locations ?? ["Blackmere"],
@@ -815,6 +843,8 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
         "Infiltration",
         "Assassination",
         "Frontier operations",
+        "Shadow magic",
+        "Shadow brace channeling",
       ],
     bodyState: options.character?.bodyState ?? "healthy",
     mindState: options.character?.mindState ?? "clear",
@@ -1128,6 +1158,65 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
       type: "execute",
       stmt: {
         sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-shadow-brace")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("shadow-brace")},
+            ${sqlString("Ancient Shadow Brace")},
+            ${sqlString("key")},
+            ${sqlString("An ancient magical harness bound to Cade's shooting arm that channels dangerous shadow magic at escalating physical cost.")},
+            0,
+            ${sqlJson({
+              starter: true,
+              protected: true,
+              magical: true,
+              grants: ["shadow_magic"],
+              abilities: [
+                {
+                  key: "veil_step",
+                  name: "Veil Step",
+                  description: "Slip a short distance through deep shadow to reposition or escape notice.",
+                  cost: "Body strain through the brace and lingering pain in the shooting arm.",
+                  downside: "Repeated use can push Cade from strained to wounded and leave the arm shaking.",
+                  tags: ["shadow", "mobility", "stealth"],
+                },
+                {
+                  key: "umbral_sight",
+                  name: "Umbral Sight",
+                  description: "Read movement, traces, and unnatural disturbance in darkness.",
+                  cost: "Mental strain, disorientation, and a sense of cold pressure behind the eyes.",
+                  downside: "Overuse can shift Cade from clear to stressed or shaken.",
+                  tags: ["shadow", "awareness", "perception"],
+                },
+                {
+                  key: "shadow_snare",
+                  name: "Shadow Snare",
+                  description: "Bind, slow, or hinder a target with a lash of living shadow.",
+                  cost: "Pain spikes through the brace and loss of fine control in the arm.",
+                  downside: "Can trigger backlash conditions like arrow_arm_pain, bleeding, or exhaustion if forced.",
+                  tags: ["shadow", "control", "combat"],
+                },
+              ],
+            })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
           insert into run_inventory (
             run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
           ) values (
@@ -1136,6 +1225,28 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
             1,
             ${sqlString("body")},
             ${sqlJson({ starter: true })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-shadow-brace")},
+            1,
+            ${sqlString("arm")},
+            ${sqlJson({ starter: true, protected: true, magical: true })},
             ${sqlString(now)}
           )
           on conflict(run_id, item_id) do update set
@@ -1840,16 +1951,20 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
       action: rowValue(row, 3) ?? undefined,
       createdAt: rowValue(row, 4) ?? isoNow(),
     })),
-    inventory: inventoryRows.map((row) => ({
-      itemId: rowValue(row, 0) ?? crypto.randomUUID(),
-      slug: rowValue(row, 1) ?? "unknown-item",
-      name: rowValue(row, 2) ?? "Unknown item",
-      itemType: rowValue(row, 3) ?? "misc",
-      description: rowValue(row, 4),
-      quantity: Number(rowValue(row, 5) ?? 0),
-      equippedSlot: rowValue(row, 6),
-      metadata: parseJsonObject(rowValue(row, 7)),
-    })),
+    inventory: inventoryRows.map((row) => {
+      const metadata = parseJsonObject(rowValue(row, 7));
+      return {
+        itemId: rowValue(row, 0) ?? crypto.randomUUID(),
+        slug: rowValue(row, 1) ?? "unknown-item",
+        name: rowValue(row, 2) ?? "Unknown item",
+        itemType: rowValue(row, 3) ?? "misc",
+        description: rowValue(row, 4),
+        quantity: Number(rowValue(row, 5) ?? 0),
+        equippedSlot: rowValue(row, 6),
+        metadata,
+        abilities: parseInventoryAbilities(metadata),
+      };
+    }),
     flags: flagRows.map((row) => ({
       flagKey: rowValue(row, 0) ?? "unknown_flag",
       flagValue: rowValue(row, 1) ?? "",
