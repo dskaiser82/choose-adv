@@ -14,6 +14,10 @@ const checks = [
     command: ['node', 'tests/turn-route.test.js'],
   },
   {
+    name: 'turn structured contract checks',
+    command: ['node', 'tests/turn-structured-contract.test.js'],
+  },
+  {
     name: 'turso persistence checks',
     command: ['node', 'tests/turso-soft.test.js'],
   },

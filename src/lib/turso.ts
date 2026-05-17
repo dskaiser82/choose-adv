@@ -93,6 +93,20 @@ export type DiscoveryRecord = {
   createdAt: string;
 };
 
+export type TeamMemberRecord = {
+  id: string;
+  personKey: string;
+  name: string;
+  role?: string | null;
+  summary: string;
+  relationship?: string | null;
+  status: string;
+  isCompanion: boolean;
+  isActive: boolean;
+  notes?: string | null;
+  updatedAt: string;
+};
+
 export type StoryBootstrap = {
   run: RunRecord;
   character: CharacterRecord;
@@ -102,6 +116,7 @@ export type StoryBootstrap = {
   inventory: InventoryRecord[];
   flags: FlagRecord[];
   discoveries: DiscoveryRecord[];
+  teamMembers: TeamMemberRecord[];
 };
 
 export type PersistDiscoveryInput = {
@@ -111,6 +126,19 @@ export type PersistDiscoveryInput = {
   name: string;
   summary: string;
   details?: string | null;
+};
+
+export type PersistTeamMemberInput = {
+  runId?: string;
+  personKey: string;
+  name: string;
+  role?: string | null;
+  summary: string;
+  relationship?: string | null;
+  status?: string;
+  isCompanion?: boolean;
+  isActive?: boolean;
+  notes?: string | null;
 };
 
 export type PersistTurnInput = {
@@ -198,6 +226,10 @@ function sqlNullableString(value?: string | null) {
 
 function sqlNumber(value?: number | null) {
   return value == null ? "null" : String(value);
+}
+
+function sqlBoolean(value: boolean) {
+  return value ? "1" : "0";
 }
 
 function sqlJson(value: unknown) {
@@ -425,6 +457,58 @@ export async function persistDiscovery({
             name = excluded.name,
             summary = excluded.summary,
             details = excluded.details
+        `,
+      },
+    },
+  ]);
+}
+
+export async function persistTeamMember({
+  runId,
+  personKey,
+  name,
+  role,
+  summary,
+  relationship,
+  status,
+  isCompanion,
+  isActive,
+  notes,
+}: PersistTeamMemberInput) {
+  await ensureSchema();
+  const activeRunId = runId ?? DEFAULT_RUN_ID;
+  const now = isoNow();
+  await tursoPipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_team_members (
+            id, run_id, person_key, name, role, summary, relationship, status, is_companion, is_active, notes, updated_at
+          ) values (
+            ${sqlString(crypto.randomUUID())},
+            ${sqlString(activeRunId)},
+            ${sqlString(personKey)},
+            ${sqlString(name)},
+            ${sqlNullableString(role ?? null)},
+            ${sqlString(summary)},
+            ${sqlNullableString(relationship ?? null)},
+            ${sqlString(status ?? "known")},
+            ${sqlBoolean(isCompanion ?? false)},
+            ${sqlBoolean(isActive ?? false)},
+            ${sqlNullableString(notes ?? null)},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, person_key) do update set
+            name = excluded.name,
+            role = excluded.role,
+            summary = excluded.summary,
+            relationship = excluded.relationship,
+            status = excluded.status,
+            is_companion = excluded.is_companion,
+            is_active = excluded.is_active,
+            notes = excluded.notes,
+            updated_at = excluded.updated_at
         `,
       },
     },
@@ -723,6 +807,28 @@ export async function ensureSchema() {
             details text,
             created_at text not null,
             unique(run_id, discovery_type, discovery_key)
+          )
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          create table if not exists run_team_members (
+            id text primary key,
+            run_id text not null,
+            person_key text not null,
+            name text not null,
+            role text,
+            summary text not null,
+            relationship text,
+            status text not null,
+            is_companion integer not null,
+            is_active integer not null,
+            notes text,
+            updated_at text not null,
+            unique(run_id, person_key)
           )
         `,
       },
@@ -1854,7 +1960,7 @@ export async function upsertSampleStoryState() {
     id: crypto.randomUUID(),
     eventKey: `sample-${sceneTime}`,
     title: "Schema update complete",
-    summary: "The campaign now runs through canonical run_state, turns, inventory, flags, discoveries, and narrative condition tables.",
+    summary: "The campaign now runs through canonical run_state, turns, inventory, flags, discoveries, team members, and narrative condition tables.",
     action: "Migration / schema cleanup",
     createdAt: sceneTime,
   });
@@ -1876,6 +1982,7 @@ export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
     { type: "execute", stmt: { sql: `delete from run_inventory where run_id = ${sqlString(runId)}` } },
     { type: "execute", stmt: { sql: `delete from run_flags where run_id = ${sqlString(runId)}` } },
     { type: "execute", stmt: { sql: `delete from run_discoveries where run_id = ${sqlString(runId)}` } },
+    { type: "execute", stmt: { sql: `delete from run_team_members where run_id = ${sqlString(runId)}` } },
   ]);
 
   await seedCanonicalDefaults({
@@ -1927,6 +2034,7 @@ export async function getTableCounts() {
     { type: "execute", stmt: { sql: "select count(*) from run_inventory" } },
     { type: "execute", stmt: { sql: "select count(*) from run_flags" } },
     { type: "execute", stmt: { sql: "select count(*) from run_discoveries" } },
+    { type: "execute", stmt: { sql: "select count(*) from run_team_members" } },
     { type: "execute", stmt: { sql: "select count(*) from authored_scenes" } },
   ]);
 
@@ -1941,7 +2049,8 @@ export async function getTableCounts() {
     inventory: Number(rowValue(rows(payload, 7)[0], 0) ?? 0),
     flags: Number(rowValue(rows(payload, 8)[0], 0) ?? 0),
     discoveries: Number(rowValue(rows(payload, 9)[0], 0) ?? 0),
-    scenes: Number(rowValue(rows(payload, 10)[0], 0) ?? 0),
+    teamMembers: Number(rowValue(rows(payload, 10)[0], 0) ?? 0),
+    scenes: Number(rowValue(rows(payload, 11)[0], 0) ?? 0),
   };
 }
 
@@ -1981,6 +2090,12 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
           sql: `select id, discovery_type, discovery_key, name, summary, details, created_at from run_discoveries where run_id = ${sqlString(runId)} order by created_at desc limit 20`,
         },
       },
+      {
+        type: "execute",
+        stmt: {
+          sql: `select id, person_key, name, role, summary, relationship, status, is_companion, is_active, notes, updated_at from run_team_members where run_id = ${sqlString(runId)} order by updated_at desc limit 20`,
+        },
+      },
     ]),
   ]);
 
@@ -1992,6 +2107,7 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
   const inventoryRows = rows(payload, 1);
   const flagRows = rows(payload, 2);
   const discoveryRows = rows(payload, 3);
+  const teamMemberRows = rows(payload, 4);
 
   return {
     run: {
@@ -2074,6 +2190,19 @@ export async function getStoryBootstrap(runId = DEFAULT_RUN_ID): Promise<StoryBo
       summary: rowValue(row, 4) ?? "",
       details: rowValue(row, 5),
       createdAt: rowValue(row, 6) ?? isoNow(),
+    })),
+    teamMembers: teamMemberRows.map((row) => ({
+      id: rowValue(row, 0) ?? crypto.randomUUID(),
+      personKey: rowValue(row, 1) ?? "unknown_person",
+      name: rowValue(row, 2) ?? "Unknown person",
+      role: rowValue(row, 3),
+      summary: rowValue(row, 4) ?? "",
+      relationship: rowValue(row, 5),
+      status: rowValue(row, 6) ?? "known",
+      isCompanion: rowValue(row, 7) === "1",
+      isActive: rowValue(row, 8) === "1",
+      notes: rowValue(row, 9),
+      updatedAt: rowValue(row, 10) ?? isoNow(),
     })),
   };
 }

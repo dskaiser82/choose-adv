@@ -1,12 +1,13 @@
 {
   "name": "choose-adventure",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "npm run test:soft",
     "test:soft": "node scripts/run-soft-checks.js",
     "verify": "npm run build && npm run test:soft"
   },
