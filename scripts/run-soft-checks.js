@@ -17,6 +17,10 @@ const checks = [
     name: 'turso persistence checks',
     command: ['node', 'tests/turso-soft.test.js'],
   },
+  {
+    name: 'page hydration soft checks',
+    command: ['node', 'tests/page-hydration-soft.test.js'],
+  },
 ];
 
 let hadFailure = false;

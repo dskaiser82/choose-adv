@@ -52,6 +52,7 @@ type GameClientProps = {
   playerRegion?: string;
   playerRole?: string;
   summaryText: string;
+  initialTurn?: TurnResponse;
 };
 
 const DEFAULT_REVEAL_SPEED = 1500;
@@ -122,8 +123,9 @@ export default function GameClient({
   playerRegion,
   playerRole,
   summaryText,
+  initialTurn: initialTurnProp,
 }: GameClientProps) {
-  const initialTurn = useMemo(() => buildInitialTurn(worldName, playerName), [worldName, playerName]);
+  const initialTurn = useMemo(() => initialTurnProp ?? buildInitialTurn(worldName, playerName), [initialTurnProp, worldName, playerName]);
   const [action, setAction] = useState("");
   const [loading, setLoading] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);

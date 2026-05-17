@@ -22,6 +22,17 @@ export default async function Home() {
           playerRegion={character.region ?? undefined}
           playerRole={character.role ?? undefined}
           summaryText={world.summary}
+          initialTurn={{
+            sceneTitle: currentScene?.title ?? `${world.name} Test Run`,
+            narration: currentScene?.narration ?? storyTeaser,
+            suggestedChoices: currentScene?.suggestedChoices ?? [
+              "Study the darkness beyond the firelight",
+              "Inspect the shadow brace and feel for its pull",
+              "Rest, listen, and prepare for what comes next",
+            ],
+            usedTts: false,
+            ttsMode: "none",
+          }}
         />
 
         <header className="relative overflow-hidden rounded-[30px] border border-violet-300/15 bg-[linear-gradient(180deg,rgba(18,10,36,0.94),rgba(8,6,18,0.98))] p-4 shadow-[0_0_0_1px_rgba(196,181,253,0.04),0_24px_70px_rgba(0,0,0,0.45)] md:p-6">
