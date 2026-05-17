@@ -14,8 +14,10 @@ const source = fs.readFileSync('/home/gobotmini/code/choose-adventure/src/lib/tu
   'create table if not exists run_inventory',
   'create table if not exists run_flags',
   'create table if not exists run_discoveries',
+  'create table if not exists run_team_members',
   'export async function persistTurn',
   'export async function persistDiscovery',
+  'export async function persistTeamMember',
   'export async function getStoryBootstrap',
   'export async function resetStoryRun',
 ].forEach((needle) => assert.match(source, new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))));
@@ -24,6 +26,7 @@ assert.doesNotMatch(source, /localStorage/);
 assert.match(source, /inventory:/);
 assert.match(source, /flags:/);
 assert.match(source, /discoveries:/);
+assert.match(source, /teamMembers:/);
 assert.match(source, /bodyState/);
 assert.match(source, /mindState/);
 assert.match(source, /conditions/);
