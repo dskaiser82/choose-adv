@@ -1,4 +1,4 @@
-import { getStoryBootstrap, persistDiscovery, type StoryBootstrap } from "@/lib/turso";
+import { getStoryBootstrap, persistDiscovery, persistTeamMember, type StoryBootstrap } from "@/lib/turso";
 import { persistTurn } from "@/lib/turso";
 
 type DiscoveryPayload = {
@@ -10,9 +10,18 @@ type DiscoveryPayload = {
   details?: string;
 };
 
+type PersonDiscoveryPayload = DiscoveryPayload & {
+  role?: string;
+  relationship?: string;
+  status?: string;
+  isCompanion?: boolean;
+  isActive?: boolean;
+  notes?: string;
+};
+
 type DiscoveryBucketsPayload = {
   locations?: DiscoveryPayload[];
-  people?: DiscoveryPayload[];
+  people?: PersonDiscoveryPayload[];
   factions?: DiscoveryPayload[];
   routes?: DiscoveryPayload[];
   threats?: DiscoveryPayload[];
@@ -100,7 +109,14 @@ function buildFallbackTurn({
     debug: {
       generator: "openclaw-fallback",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events", "turso:run_discoveries"],
+      usedStateFiles: [
+        "turso:runs",
+        "turso:run_state",
+        "turso:run_turns",
+        "turso:run_events",
+        "turso:run_discoveries",
+        "turso:run_team_members",
+      ],
       model: MODEL,
       contextMode,
       promptMode,
@@ -131,6 +147,35 @@ function sanitizeDiscoveryList(raw: unknown, defaultType: string) {
   });
 }
 
+function sanitizePeopleList(raw: unknown) {
+  if (!Array.isArray(raw)) return [] as PersonDiscoveryPayload[];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const value = item as Record<string, unknown>;
+    if (
+      typeof value.key !== "string" ||
+      typeof value.name !== "string" ||
+      typeof value.summary !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      discoveryType: typeof value.discoveryType === "string" ? value.discoveryType : "person",
+      subtype: typeof value.subtype === "string" ? value.subtype : undefined,
+      key: value.key,
+      name: value.name,
+      summary: value.summary,
+      details: typeof value.details === "string" ? value.details : undefined,
+      role: typeof value.role === "string" ? value.role : undefined,
+      relationship: typeof value.relationship === "string" ? value.relationship : undefined,
+      status: typeof value.status === "string" ? value.status : undefined,
+      isCompanion: typeof value.isCompanion === "boolean" ? value.isCompanion : undefined,
+      isActive: typeof value.isActive === "boolean" ? value.isActive : undefined,
+      notes: typeof value.notes === "string" ? value.notes : undefined,
+    }];
+  });
+}
+
 function sanitizeDiscoveries(raw: unknown): DiscoveryBucketsPayload {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
@@ -139,7 +184,7 @@ function sanitizeDiscoveries(raw: unknown): DiscoveryBucketsPayload {
   const value = raw as Record<string, unknown>;
   return {
     locations: sanitizeDiscoveryList(value.locations, "location"),
-    people: sanitizeDiscoveryList(value.people, "person"),
+    people: sanitizePeopleList(value.people),
     factions: sanitizeDiscoveryList(value.factions, "faction"),
     routes: sanitizeDiscoveryList(value.routes, "route"),
     threats: sanitizeDiscoveryList(value.threats, "threat"),
@@ -178,7 +223,14 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
     debug: {
       generator: "openclaw-openrouter",
       timestamp: Math.floor(Date.now() / 1000),
-      usedStateFiles: ["turso:runs", "turso:run_state", "turso:run_turns", "turso:run_events", "turso:run_discoveries"],
+      usedStateFiles: [
+        "turso:runs",
+        "turso:run_state",
+        "turso:run_turns",
+        "turso:run_events",
+        "turso:run_discoveries",
+        "turso:run_team_members",
+      ],
       model: MODEL,
       contextMode: fallback.debug?.contextMode ?? "delta",
       promptMode: fallback.debug?.promptMode ?? "normal",
@@ -248,6 +300,17 @@ function buildFullNarratorStatePayload(story: StoryBootstrap) {
       summary: discovery.summary,
       details: discovery.details,
     })),
+    teamMembers: story.teamMembers.slice(0, 10).map((member) => ({
+      personKey: member.personKey,
+      name: member.name,
+      role: member.role,
+      summary: member.summary,
+      relationship: member.relationship,
+      status: member.status,
+      isCompanion: member.isCompanion,
+      isActive: member.isActive,
+      notes: member.notes,
+    })),
     recentEvents: story.recentEvents.slice(0, 5).map((event) => ({
       title: event.title,
       summary: event.summary,
@@ -292,6 +355,14 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
         tags: ability.tags,
       })),
     })),
+    teamMembers: story.teamMembers.slice(0, 4).map((member) => ({
+      name: member.name,
+      role: member.role,
+      relationship: member.relationship,
+      status: member.status,
+      isCompanion: member.isCompanion,
+      isActive: member.isActive,
+    })),
     discoveries: story.discoveries.slice(0, 4).map((discovery) => ({
       discoveryType: discovery.discoveryType,
       name: discovery.name,
@@ -335,9 +406,10 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "If a magical ability has a cost or downside, reflect that in your narration and suggested updates when relevant.",
     "If the player asks a direct question, answer it as directly as the current fiction reasonably allows.",
     "If you introduce a meaningful new location, NPC, route, faction, threat, or fact, include it in discoveries so the app can save it as canon.",
+    "If you introduce or deepen a recurring ally, companion, or notable person, include them in the people bucket with role, relationship, status, and whether they are a companion/active companion.",
     "Avoid repeating the same non-answer twice in a row.",
     "Return ONLY valid JSON with this exact shape:",
-    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","bodyState":"wounded","mindState":"stressed","conditions":["arrow_shoulder"],"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"discoveries":{"locations":[{"key":"oakhaven","subtype":"town","name":"Oakhaven","summary":"A frontier town beyond the woods.","details":"A likely destination and nearest settlement."}],"routes":[{"key":"whispering_pass","subtype":"pass","name":"Whispering Pass","summary":"A dangerous route leading toward Oakhaven.","details":"Known for eerie whispers, unstable footing, and ambush risk."}],"people":[],"factions":[],"threats":[],"facts":[]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:runs","turso:run_state","turso:run_turns","turso:run_events","turso:run_discoveries"]}}',
+    '{"ok":true,"sceneTitle":"...","narration":"...","suggestedChoices":["...","...","..."],"characterUpdate":{"status":"...","role":"...","region":"...","bodyState":"wounded","mindState":"stressed","conditions":["arrow_shoulder"],"notes":["..."]},"worldUpdate":{"summary":"...","tone":"...","notes":["..."],"regions":["..."],"locations":["..."]},"discoveries":{"locations":[{"key":"oakhaven","subtype":"town","name":"Oakhaven","summary":"A frontier town beyond the woods.","details":"A likely destination and nearest settlement."}],"routes":[{"key":"whispering_pass","subtype":"pass","name":"Whispering Pass","summary":"A dangerous route leading toward Oakhaven.","details":"Known for eerie whispers, unstable footing, and ambush risk."}],"people":[{"key":"maelin","subtype":"scout","name":"Maelin","summary":"A wary scout who may become an ally.","details":"Knows the woods well.","role":"scout","relationship":"cautious ally","status":"traveling_with_cade","isCompanion":true,"isActive":true,"notes":"Carries a shortbow and knows hidden trails."}],"factions":[],"threats":[],"facts":[]},"debug":{"generator":"openclaw-bridge","timestamp":123,"usedStateFiles":["turso:runs","turso:run_state","turso:run_turns","turso:run_events","turso:run_discoveries","turso:run_team_members"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
@@ -349,7 +421,7 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "- Use mindState values like clear, stressed, shaken, fractured, broken",
     "- Conditions should be concrete tags like arrow_shoulder, limping, bleeding, exhausted, watched_by_guard",
     "- Keep updates conservative and cumulative",
-    "- Treat the narrator state payload as authoritative canon for gear, abilities, flags, discoveries, and current context",
+    "- Treat the narrator state payload as authoritative canon for gear, abilities, flags, discoveries, team members, and current context",
   ];
 
   if (promptMode === "session_start") {
@@ -357,8 +429,9 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
       ...common,
       "Session-start reminder:",
       "- You are a living GM/narrator, not just a prose engine.",
-      "- You may expand the world through towns, routes, NPCs, factions, threats, and discoveries.",
+      "- You may expand the world through towns, routes, NPCs, factions, threats, discoveries, and companions.",
       "- When you expand the world meaningfully, return discoveries in the bucketed structure so the app can persist them.",
+      "- If a recurring ally becomes a companion or active traveling member, include that explicitly in the people bucket.",
       "- Start from uncertainty if the current scene is intentionally limited; do not force the character to already know the wider map.",
       "- Move the story forward instead of stalling in mood or repetition.",
     ].join("\n");
@@ -469,12 +542,27 @@ export async function POST(req: Request) {
   });
 
   for (const discovery of flattenDiscoveries(turn.discoveries)) {
+    const discoveryType = discovery.subtype ? `${discovery.discoveryType}:${discovery.subtype}` : discovery.discoveryType;
     await persistDiscovery({
-      discoveryType: discovery.subtype ? `${discovery.discoveryType}:${discovery.subtype}` : discovery.discoveryType,
+      discoveryType,
       key: discovery.key,
       name: discovery.name,
       summary: discovery.summary,
       details: discovery.details,
+    });
+  }
+
+  for (const person of turn.discoveries?.people ?? []) {
+    await persistTeamMember({
+      personKey: person.key,
+      name: person.name,
+      role: person.role,
+      summary: person.summary,
+      relationship: person.relationship,
+      status: person.status ?? "known",
+      isCompanion: person.isCompanion ?? false,
+      isActive: person.isActive ?? false,
+      notes: person.notes ?? person.details,
     });
   }
 
