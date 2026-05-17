@@ -10,6 +10,10 @@ const checks = [
     command: ['node', 'tests/tts-route.test.js'],
   },
   {
+    name: 'reset route contract checks',
+    command: ['node', 'tests/reset-route-contract.test.js'],
+  },
+  {
     name: 'turn route integration checks',
     command: ['node', 'tests/turn-route.test.js'],
   },
