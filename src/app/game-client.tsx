@@ -402,6 +402,14 @@ export default function GameClient({
     if (!action.trim()) return;
 
     const submittedAction = action.trim();
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+    }
+
     setLoading(true);
     setShowOverlay(true);
     setError(null);
