@@ -1407,6 +1407,118 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
       type: "execute",
       stmt: {
         sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-hunting-bow")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("hunting-bow")},
+            ${sqlString("Hunting Bow")},
+            ${sqlString("weapon")},
+            ${sqlString("A sturdy bow suited for scouting, silent kills, and careful shots at range.")},
+            0,
+            ${sqlJson({ starter: true, protected: false, weaponStyle: "ranged", usesAmmo: "arrows" })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-arrows")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("arrows")},
+            ${sqlString("Arrows")},
+            ${sqlString("ammo")},
+            ${sqlString("A bundled quiver of arrows for Cade's bow.")},
+            1,
+            ${sqlJson({ starter: true, protected: false, ammoFor: "hunting-bow" })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-quiet-dagger")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("quiet-dagger")},
+            ${sqlString("Quiet Dagger")},
+            ${sqlString("weapon")},
+            ${sqlString("A balanced dagger Cade can draw quickly for stealth work and close fighting.")},
+            0,
+            ${sqlJson({ starter: true, protected: false, weaponStyle: "light_melee", tags: ["stealth", "backup"] })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-travel-sword")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("travel-sword")},
+            ${sqlString("Travel Sword")},
+            ${sqlString("weapon")},
+            ${sqlString("A practical sword for open combat when subtlety fails.")},
+            0,
+            ${sqlJson({ starter: true, protected: false, weaponStyle: "melee", tags: ["combat", "sidearm"] })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
           insert into run_inventory (
             run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
           ) values (
@@ -1481,6 +1593,94 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
             3,
             null,
             ${sqlJson({ starter: true })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-hunting-bow")},
+            1,
+            ${sqlString("hands")},
+            ${sqlJson({ starter: true, preferred: true, combatRole: "ranged_primary" })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-arrows")},
+            20,
+            ${sqlString("quiver")},
+            ${sqlJson({ starter: true, combatRole: "ammo" })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-quiet-dagger")},
+            1,
+            ${sqlString("belt")},
+            ${sqlJson({ starter: true, combatRole: "stealth_sidearm" })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-travel-sword")},
+            1,
+            ${sqlString("hip")},
+            ${sqlJson({ starter: true, combatRole: "melee_sidearm" })},
             ${sqlString(now)}
           )
           on conflict(run_id, item_id) do update set
