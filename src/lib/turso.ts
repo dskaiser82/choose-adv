@@ -1527,6 +1527,34 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
       type: "execute",
       stmt: {
         sql: `
+          insert into items (
+            id, campaign_id, slug, name, item_type, description, stackable, metadata_json, created_at, updated_at
+          ) values (
+            ${sqlString("item-silver-coins")},
+            ${sqlString(DEFAULT_CAMPAIGN_ID)},
+            ${sqlString("silver-coins")},
+            ${sqlString("Silver Coins")},
+            ${sqlString("currency")},
+            ${sqlString("A purse of silver coin used for food, lodging, supplies, favors, and the ordinary costs of staying alive on the road.")},
+            1,
+            ${sqlJson({ starter: true, protected: false, currency: true, denomination: "silver" })},
+            ${sqlString(now)},
+            ${sqlString(now)}
+          )
+          on conflict(id) do update set
+            name = excluded.name,
+            item_type = excluded.item_type,
+            description = excluded.description,
+            stackable = excluded.stackable,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
           insert into run_inventory (
             run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
           ) values (
@@ -1689,6 +1717,28 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
             1,
             ${sqlString("hip")},
             ${sqlJson({ starter: true, combatRole: "melee_sidearm" })},
+            ${sqlString(now)}
+          )
+          on conflict(run_id, item_id) do update set
+            quantity = excluded.quantity,
+            equipped_slot = excluded.equipped_slot,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        `,
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `
+          insert into run_inventory (
+            run_id, item_id, quantity, equipped_slot, metadata_json, updated_at
+          ) values (
+            ${sqlString(runId)},
+            ${sqlString("item-silver-coins")},
+            24,
+            ${sqlString("pouch")},
+            ${sqlJson({ starter: true, spendable: true })},
             ${sqlString(now)}
           )
           on conflict(run_id, item_id) do update set
