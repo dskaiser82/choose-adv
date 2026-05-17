@@ -1001,7 +1001,7 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
       "Veyr is a hard land of rival powers, border intrigue, and quiet violence. Cade operates in the Grey Marches, where decaying loyalties, reconnaissance work, and hidden threats shape every decision. Bound to Cade's dominant shooting arm is an ancient shadow brace that grants dangerous shadow-based abilities at escalating physical cost.",
     majorPowers: options.world?.majorPowers ?? ["Avaren", "Velkan Marches", "The Free Coast"],
     regions: options.world?.regions ?? ["The Grey Marches"],
-    locations: options.world?.locations ?? ["The Deep Woods"],
+    locations: options.world?.locations ?? ["The Deep Woods", "Whispering Pass", "Oakhaven"],
     notes: options.world?.notes ?? [],
   };
 
@@ -1010,7 +1010,7 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
     name: options.character?.name ?? "Cade",
     status: options.character?.status ?? "alive",
     kingdom: options.character?.kingdom ?? "Avaren",
-    region: options.character?.region ?? "The Deep Woods",
+    region: options.character?.region ?? "Whispering Pass Approach",
     formerAffiliation: options.character?.formerAffiliation ?? "Black Veil Corps",
     role: options.character?.role ?? "Frontier reconnaissance operative",
     yearsOfService: options.character?.yearsOfService ?? 11,
@@ -1037,16 +1037,16 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
   const scene: SceneRecord = {
     id: options.scene?.id ?? crypto.randomUUID(),
     sceneKey: options.scene?.sceneKey ?? "start",
-    title: options.scene?.title ?? "Campfire in the Woods",
+    title: options.scene?.title ?? "Approach to Whispering Pass",
     narration:
       options.scene?.narration ??
-      "Night has settled deep in the woods. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. He knows only the trees, the cold, and the uneasy sense that something in the wilderness is watching back.",
+      "Dawn has not yet broken, and Cade is already moving through the last stretch of dense woodland toward Whispering Pass. Beyond that narrow, dangerous route lies Oakhaven, the frontier town he means to reach next. His bow, dagger, sword, and ancient shadow brace are close at hand as the wind threads through the trees and the pass ahead lives up to its name.",
     suggestedChoices:
       options.scene?.suggestedChoices ??
       [
-        "Study the darkness beyond the firelight",
-        "Inspect the shadow brace and feel for its pull",
-        "Rest, listen, and prepare for what comes next",
+        "Advance toward the mouth of Whispering Pass with caution",
+        "Survey the approach for tracks, ambush points, or recent travelers",
+        "Pause under cover and plan the safest route to Oakhaven",
       ],
     actionDraft: options.scene?.actionDraft ?? "",
     updatedAt: options.scene?.updatedAt ?? now,
@@ -1249,11 +1249,19 @@ async function seedCanonicalDefaults(options: SeedOptions = {}) {
   await ensureDefaultInventoryAndFlags(DEFAULT_RUN_ID);
   await persistDiscovery({
     runId: DEFAULT_RUN_ID,
-    discoveryType: "location",
-    key: "woods_campfire",
-    name: "Campfire in the Woods",
-    summary: "Cade begins alone in the deep woods beside a low campfire, with only the immediate forest and darkness known for certain.",
-    details: "This is an opening scene anchor, not a known town or route.",
+    discoveryType: "location:town",
+    key: "oakhaven",
+    name: "Oakhaven",
+    summary: "A frontier town beyond Whispering Pass and Cade's immediate destination.",
+    details: "A likely settlement, supply point, and source of leads once Cade gets through the pass.",
+  });
+  await persistDiscovery({
+    runId: DEFAULT_RUN_ID,
+    discoveryType: "route:pass",
+    key: "whispering_pass",
+    name: "Whispering Pass",
+    summary: "A narrow, dangerous pass Cade must cross to reach Oakhaven.",
+    details: "Known for strange windborne whispers, tight ground, and obvious ambush risk.",
   });
 }
 
@@ -1698,7 +1706,7 @@ async function ensureDefaultInventoryAndFlags(runId: string) {
           insert into run_flags (run_id, flag_key, flag_value, updated_at) values (
             ${sqlString(runId)},
             ${sqlString("starting_region")},
-            ${sqlString("Deep Woods")},
+            ${sqlString("Whispering Pass Approach")},
             ${sqlString(now)}
           )
           on conflict(run_id, flag_key) do update set
@@ -2191,18 +2199,18 @@ export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
       mindState: "clear",
       conditions: [],
       notes: [],
-      region: "The Deep Woods",
+      region: "Whispering Pass Approach",
     },
     scene: {
       id: crypto.randomUUID(),
       sceneKey: "start",
-      title: "Campfire in the Woods",
+      title: "Approach to Whispering Pass",
       narration:
-        "Night has settled deep in the woods. Cade sits beside a low campfire with his gear close at hand, the ancient shadow brace still bound to his shooting arm as the dark presses just beyond the firelight. He knows only the trees, the cold, and the uneasy sense that something in the wilderness is watching back.",
+        "Dawn has not yet broken, and Cade is already moving through the last stretch of dense woodland toward Whispering Pass. Beyond that narrow, dangerous route lies Oakhaven, the frontier town he means to reach next. His bow, dagger, sword, and ancient shadow brace are close at hand as the wind threads through the trees and the pass ahead lives up to its name.",
       suggestedChoices: [
-        "Study the darkness beyond the firelight",
-        "Inspect the shadow brace and feel for its pull",
-        "Rest, listen, and prepare for what comes next",
+        "Advance toward the mouth of Whispering Pass with caution",
+        "Survey the approach for tracks, ambush points, or recent travelers",
+        "Pause under cover and plan the safest route to Oakhaven",
       ],
       actionDraft: "",
       updatedAt: now,

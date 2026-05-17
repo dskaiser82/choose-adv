@@ -37,7 +37,9 @@ assert.match(source, /item_type/);
 assert.match(source, /abilities/);
 assert.match(source, /parseInventoryAbilities/);
 assert.match(source, /Veil Step/);
-assert.match(source, /Campfire in the Woods/);
+assert.match(source, /Approach to Whispering Pass/);
+assert.match(source, /Oakhaven/);
+assert.match(source, /Whispering Pass/);
 assert.match(source, /run_turns/);
 assert.match(source, /run_events/);
 
