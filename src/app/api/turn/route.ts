@@ -410,13 +410,19 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "If you introduce a meaningful new location, NPC, route, faction, threat, or fact, include it in discoveries so the app can save it as canon.",
     "If you introduce or deepen a recurring ally, companion, or notable person, include them in the people bucket with role, relationship, status, and whether they are a companion/active companion.",
     "Avoid repeating the same non-answer twice in a row.",
+    "Every turn must materially advance the situation. Each response must include at least one of the following: a new fact, a new threat, a changed situation, a concrete consequence, or a discovered person/place/object.",
+    "Do not spend the whole response re-describing atmosphere, mood, weather, or scenery if the situation has not changed.",
+    "Narration should prioritize motion, consequence, and decision pressure over decorative prose.",
     "Return ONLY valid JSON with this exact top-level shape:",
     '{"ok":true,"sceneTitle":"string","narration":"string","suggestedChoices":["string","string","string"],"characterUpdate":{"status":"string","role":"string","region":"string","bodyState":"string","mindState":"string","conditions":["string"],"notes":["string"]},"worldUpdate":{"summary":"string","tone":"string","notes":["string"],"regions":["string"],"locations":["string"]},"discoveries":{"locations":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"people":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string","role":"string","relationship":"string","status":"string","isCompanion":true,"isActive":true,"notes":"string"}],"factions":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"routes":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"threats":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"facts":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}]},"debug":{"generator":"string","timestamp":123,"usedStateFiles":["string"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
     "- Keep narration to 3-5 short paragraphs max",
+    "- Keep each paragraph lean; avoid purple prose and repetitive ambience",
     "- Suggested choices must be grounded in the current scene and actual available state",
+    "- Suggested choices should be meaningfully distinct from each other, not three variations of the same move",
+    "- The turn should not end in the same exact situational posture it started in unless a failed action or blockage is itself the concrete outcome",
     "- Only include worldUpdate or characterUpdate fields when something meaningful changed",
     "- Prefer narrative condition changes over numeric damage",
     "- Use bodyState values like healthy, strained, wounded, critical, collapsed",
@@ -436,6 +442,7 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
       "- If a recurring ally becomes a companion or active traveling member, include that explicitly in the people bucket.",
       "- Start from uncertainty if the current scene is intentionally limited; do not force the character to already know the wider map.",
       "- Move the story forward instead of stalling in mood or repetition.",
+      "- Early turns should produce a hook, discovery, threat, obstacle, or consequence quickly instead of lingering in setup description.",
     ].join("\n");
   }
 
