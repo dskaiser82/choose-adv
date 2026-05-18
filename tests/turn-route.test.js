@@ -37,6 +37,8 @@ assert.match(source, /Prompt mode:/);
 assert.match(source, /Context mode:/);
 assert.match(source, /worldUpdate/);
 assert.match(source, /ReadableStream/);
-assert.match(source, /openrouter/i);
+assert.match(source, /GoogleGenAI/);
+assert.match(source, /GEMINI_API_KEY/);
+assert.match(source, /generateContent/);
 
 console.log('turn route integration checks passed');

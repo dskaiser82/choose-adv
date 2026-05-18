@@ -1,3 +1,4 @@
+import { GoogleGenAI } from "@google/genai";
 import { getStoryBootstrap, persistDiscovery, persistTeamMember, type StoryBootstrap } from "@/lib/turso";
 import { persistTurn } from "@/lib/turso";
 
@@ -61,8 +62,7 @@ type TurnPayload = {
   };
 };
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash-lite";
+const MODEL = "gemini-2.5-flash-lite";
 const FULL_CONTEXT_INTERVAL = 10;
 const MAJOR_FLAG_PREFIXES = ["setback_", "lost_item_"];
 const DISCOVERY_BUCKETS = ["locations", "people", "factions", "routes", "threats", "facts"] as const;
@@ -471,9 +471,16 @@ async function generateTurn(body: {
   } = body;
 
   const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode, promptMode });
-  const apiKey = process.env.OPEN_ROUTER_API;
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) {
-    return fallback;
+    return {
+      ...fallback,
+      debug: {
+        ...(fallback.debug ?? {}),
+        generator: "openclaw-gemini-fallback",
+        missingApiKey: true,
+      },
+    };
   }
 
   const narratorState = contextMode === "full"
@@ -494,47 +501,39 @@ async function generateTurn(body: {
   ].filter(Boolean).join("\n\n");
 
   try {
-    const response = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://choose-adventure-lake.vercel.app",
-        "X-Title": "choose-adventure",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: `${systemPrompt}\n\n${userPrompt}`,
+      config: {
         temperature: 0.7,
-        max_tokens: 1300,
-        response_format: { type: "json_object" },
-      }),
+        maxOutputTokens: 1300,
+        responseMimeType: "application/json",
+      },
     });
 
-    if (!response.ok) {
+    const content = response.text;
+    if (typeof content !== "string" || !content.trim()) {
       return {
         ...fallback,
         debug: {
           ...(fallback.debug ?? {}),
-          generator: "openclaw-openrouter-fallback",
-          openRouterStatus: response.status,
+          generator: "openclaw-gemini-empty-fallback",
         },
       };
     }
 
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") {
-      return fallback;
-    }
-
     const parsed = JSON.parse(content) as Partial<TurnPayload>;
     return sanitizeTurnPayload(parsed, fallback);
-  } catch {
-    return fallback;
+  } catch (error) {
+    return {
+      ...fallback,
+      debug: {
+        ...(fallback.debug ?? {}),
+        generator: "openclaw-gemini-fallback",
+        error: error instanceof Error ? error.message : "unknown_error",
+      },
+    };
   }
 }
 
