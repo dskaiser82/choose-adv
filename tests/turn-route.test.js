@@ -38,5 +38,8 @@ assert.match(source, /Context mode:/);
 assert.match(source, /worldUpdate/);
 assert.match(source, /ReadableStream/);
 assert.match(source, /openrouter/i);
+assert.match(source, /OPENROUTER_MODEL/);
+assert.match(source, /DEFAULT_OPENROUTER_MODEL/);
+assert.match(source, /getWriterModel/);
 
 console.log('turn route integration checks passed');

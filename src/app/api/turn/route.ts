@@ -62,10 +62,14 @@ type TurnPayload = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash-lite";
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash-lite";
 const FULL_CONTEXT_INTERVAL = 10;
 const MAJOR_FLAG_PREFIXES = ["setback_", "lost_item_"];
 const DISCOVERY_BUCKETS = ["locations", "people", "factions", "routes", "threats", "facts"] as const;
+
+function getWriterModel() {
+  return process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL;
+}
 
 function encodeEvent(event: string, data: unknown) {
   const json = JSON.stringify(data);
@@ -94,6 +98,8 @@ function buildFallbackTurn({
   const roleText = playerRole ? `${playerRole}` : "traveler";
   const canonicalPlayerName = playerName.trim() || "Cade";
 
+  const writerModel = getWriterModel();
+
   return {
     ok: true,
     sceneTitle: `Turn Response: ${action.trim().slice(0, 42)}`,
@@ -118,7 +124,7 @@ function buildFallbackTurn({
         "turso:run_discoveries",
         "turso:run_team_members",
       ],
-      model: MODEL,
+      model: writerModel,
       contextMode,
       promptMode,
     },
@@ -198,7 +204,7 @@ function flattenDiscoveries(discoveries: DiscoveryBucketsPayload | undefined) {
   return DISCOVERY_BUCKETS.flatMap((bucket) => discoveries[bucket] ?? []);
 }
 
-function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayload): TurnPayload {
+function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayload, writerModel: string): TurnPayload {
   const sceneTitle = typeof payload.sceneTitle === "string" && payload.sceneTitle.trim()
     ? payload.sceneTitle.trim()
     : fallback.sceneTitle;
@@ -232,7 +238,7 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
         "turso:run_discoveries",
         "turso:run_team_members",
       ],
-      model: MODEL,
+      model: writerModel,
       contextMode: fallback.debug?.contextMode ?? "delta",
       promptMode: fallback.debug?.promptMode ?? "normal",
       ...(payload.debug ?? {}),
@@ -470,6 +476,7 @@ async function generateTurn(body: {
     previousNarration = story.currentScene?.narration,
   } = body;
 
+  const writerModel = getWriterModel();
   const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode, promptMode });
   const apiKey = process.env.OPEN_ROUTER_API;
   if (!apiKey) {
@@ -503,7 +510,7 @@ async function generateTurn(body: {
         "X-Title": "choose-adventure",
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: writerModel,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -520,6 +527,7 @@ async function generateTurn(body: {
         debug: {
           ...(fallback.debug ?? {}),
           generator: "openclaw-openrouter-fallback",
+          model: writerModel,
           openRouterStatus: response.status,
         },
       };
@@ -532,9 +540,17 @@ async function generateTurn(body: {
     }
 
     const parsed = JSON.parse(content) as Partial<TurnPayload>;
-    return sanitizeTurnPayload(parsed, fallback);
-  } catch {
-    return fallback;
+    return sanitizeTurnPayload(parsed, fallback, writerModel);
+  } catch (error) {
+    return {
+      ...fallback,
+      debug: {
+        ...(fallback.debug ?? {}),
+        generator: "openclaw-openrouter-fallback",
+        model: writerModel,
+        error: error instanceof Error ? error.message : "unknown_error",
+      },
+    };
   }
 }
 
