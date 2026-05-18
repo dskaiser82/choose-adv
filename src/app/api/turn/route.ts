@@ -92,14 +92,15 @@ function buildFallbackTurn({
 }): TurnPayload {
   const regionText = playerRegion ? ` in ${playerRegion}` : "";
   const roleText = playerRole ? `${playerRole}` : "traveler";
+  const canonicalPlayerName = playerName.trim() || "Cade";
 
   return {
     ok: true,
     sceneTitle: `Turn Response: ${action.trim().slice(0, 42)}`,
     narration: [
-      `${playerName}, ${roleText} of ${worldName}${regionText}, commits to a move: ${action.trim()}.`,
+      `${canonicalPlayerName}, ${roleText} of ${worldName}${regionText}, commits to a move: ${action.trim()}.`,
       `The scene tightens instead of resolving cleanly, and the world answers with danger just out of sight.`,
-      `Cade has a brief window to press forward, hide and observe, or test the dark more carefully before it closes on him.`,
+      `${canonicalPlayerName} has a brief window to press forward, hide and observe, or test the dark more carefully before it closes on them.`,
     ].join("\n\n"),
     suggestedChoices: [
       "Press forward before the danger can reposition",
@@ -400,6 +401,7 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
   const common = [
     "You are the game master for a personal dark fantasy roleplaying game.",
     "The database-backed narrator state provided by the app is canonical truth.",
+    "The protagonist identity in that narrator state is locked canon: use the exact character.name from the narrator state payload as the player character's name, never rename or substitute it, and never promote an NPC/example name into the protagonist role.",
     "You must ground narration and choices in the provided state.",
     "Do not invent new items, magical abilities, world facts, or conditions unless clearly justified by existing state and immediate scene logic.",
     "If an ability is item-granted, only use it if it appears in the narrator state payload.",
@@ -475,6 +477,8 @@ async function generateTurn(body: {
   const userPrompt = [
     `Prompt mode: ${promptMode}`,
     `Context mode: ${contextMode}`,
+    `Locked protagonist name: ${story.character.name || playerName || "Cade"}`,
+    "Use that exact protagonist name in narration unless dialogue requires another character to say it aloud.",
     `Player action: ${action}`,
     previousNarration ? `Previous narration: ${previousNarration}` : null,
     `Campaign summary: ${summaryText}`,
