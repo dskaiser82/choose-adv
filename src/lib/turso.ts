@@ -2243,6 +2243,8 @@ export async function resetStoryRun(runId = DEFAULT_RUN_ID) {
     { type: "execute", stmt: { sql: `delete from run_team_members where run_id = ${sqlString(runId)}` } },
   ]);
 
+  await seedStoryDataIfMissing();
+
   await seedCanonicalDefaults({
     character: {
       bodyState: "healthy",
