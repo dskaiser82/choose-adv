@@ -62,8 +62,8 @@ type TurnPayload = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash-lite";
-const FULL_CONTEXT_INTERVAL = 10;
+const MODEL = "google/gemini-2.5-flash";
+const FULL_CONTEXT_INTERVAL = 6;
 const MAJOR_FLAG_PREFIXES = ["setback_", "lost_item_"];
 const DISCOVERY_BUCKETS = ["locations", "people", "factions", "routes", "threats", "facts"] as const;
 
@@ -337,11 +337,12 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
       bodyState: story.character.bodyState,
       mindState: story.character.mindState,
       conditions: story.character.conditions ?? [],
+      notes: story.character.notes ?? [],
     },
     currentScene: story.currentScene
       ? {
           title: story.currentScene.title,
-          narration: story.currentScene.narration.slice(0, 500),
+          narration: story.currentScene.narration.slice(0, 900),
           suggestedChoices: story.currentScene.suggestedChoices,
         }
       : null,
@@ -356,7 +357,7 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
         tags: ability.tags,
       })),
     })),
-    teamMembers: story.teamMembers.slice(0, 4).map((member) => ({
+    teamMembers: story.teamMembers.slice(0, 6).map((member) => ({
       name: member.name,
       role: member.role,
       relationship: member.relationship,
@@ -364,7 +365,7 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
       isCompanion: member.isCompanion,
       isActive: member.isActive,
     })),
-    discoveries: story.discoveries.slice(0, 4).map((discovery) => ({
+    discoveries: story.discoveries.slice(0, 8).map((discovery) => ({
       discoveryType: discovery.discoveryType,
       name: discovery.name,
       summary: discovery.summary,
@@ -373,9 +374,10 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
       key: flag.flagKey,
       value: flag.flagValue,
     })),
-    recentEvents: story.recentEvents.slice(0, 3).map((event) => ({
+    recentEvents: story.recentEvents.slice(0, 5).map((event) => ({
       title: event.title,
       summary: event.summary,
+      action: event.action,
     })),
   };
 }
@@ -411,17 +413,23 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "If you introduce or deepen a recurring ally, companion, or notable person, include them in the people bucket with role, relationship, status, and whether they are a companion/active companion.",
     "Avoid repeating the same non-answer twice in a row.",
     "Every turn must materially advance the situation. Each response must include at least one of the following: a new fact, a new threat, a changed situation, a concrete consequence, or a discovered person/place/object.",
+    "The scene must end in a meaningfully different state than it began unless the concrete outcome is a failed action, capture, injury, loss, blocked path, or newly revealed constraint.",
+    "If the player attempts something, resolve what happens next instead of stalling at the moment before outcome.",
     "Do not spend the whole response re-describing atmosphere, mood, weather, or scenery if the situation has not changed.",
     "Narration should prioritize motion, consequence, and decision pressure over decorative prose.",
+    "Description is support material, not the main event. Keep sensory detail in service of action, consequence, or decision pressure.",
     "Return ONLY valid JSON with this exact top-level shape:",
     '{"ok":true,"sceneTitle":"string","narration":"string","suggestedChoices":["string","string","string"],"characterUpdate":{"status":"string","role":"string","region":"string","bodyState":"string","mindState":"string","conditions":["string"],"notes":["string"]},"worldUpdate":{"summary":"string","tone":"string","notes":["string"],"regions":["string"],"locations":["string"]},"discoveries":{"locations":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"people":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string","role":"string","relationship":"string","status":"string","isCompanion":true,"isActive":true,"notes":"string"}],"factions":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"routes":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"threats":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}],"facts":[{"key":"string","subtype":"string","name":"string","summary":"string","details":"string"}]},"debug":{"generator":"string","timestamp":123,"usedStateFiles":["string"]}}',
     "Rules:",
     "- No markdown",
     "- No explanation before or after JSON",
-    "- Keep narration to 3-5 short paragraphs max",
+    "- Keep narration to 2-4 short paragraphs max",
     "- Keep each paragraph lean; avoid purple prose and repetitive ambience",
+    "- Each turn must contain an outcome, reveal, complication, or irreversible commitment before the response ends",
+    "- Resolve the player's attempted action into a concrete next state; do not freeze at the threshold of action",
     "- Suggested choices must be grounded in the current scene and actual available state",
     "- Suggested choices should be meaningfully distinct from each other, not three variations of the same move",
+    "- At least one suggested choice should meaningfully escalate, commit, or risk something",
     "- The turn should not end in the same exact situational posture it started in unless a failed action or blockage is itself the concrete outcome",
     "- Only include worldUpdate or characterUpdate fields when something meaningful changed",
     "- Prefer narrative condition changes over numeric damage",
@@ -443,6 +451,7 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
       "- Start from uncertainty if the current scene is intentionally limited; do not force the character to already know the wider map.",
       "- Move the story forward instead of stalling in mood or repetition.",
       "- Early turns should produce a hook, discovery, threat, obstacle, or consequence quickly instead of lingering in setup description.",
+      "- Do not spend an early turn just admiring scenery or atmosphere; make something happen.",
     ].join("\n");
   }
 
