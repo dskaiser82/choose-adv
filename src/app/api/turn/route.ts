@@ -62,7 +62,7 @@ type TurnPayload = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "google/gemini-2.5-pro";
 const FULL_CONTEXT_INTERVAL = 6;
 const MAJOR_FLAG_PREFIXES = ["setback_", "lost_item_"];
 const DISCOVERY_BUCKETS = ["locations", "people", "factions", "routes", "threats", "facts"] as const;
