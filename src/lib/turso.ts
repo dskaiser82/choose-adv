@@ -853,6 +853,30 @@ export async function ensureSchema() {
       },
     },
   ]);
+
+  if (!(await columnExists("run_turns", "debug_payload_json"))) {
+    await tursoPipeline([
+      {
+        type: "execute",
+        stmt: {
+          sql: "alter table run_turns add column debug_payload_json text",
+        },
+      },
+    ]);
+  }
+}
+
+async function columnExists(tableName: string, columnName: string) {
+  const payload = await tursoPipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `pragma table_info(${tableName})`,
+      },
+    },
+  ]);
+
+  return rows(payload, 0).some((row) => rowValue(row, 1) === columnName);
 }
 
 async function tableExists(tableName: string) {
