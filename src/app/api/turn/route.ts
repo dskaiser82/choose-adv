@@ -62,8 +62,8 @@ type TurnPayload = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.5-pro";
-const FULL_CONTEXT_INTERVAL = 6;
+const MODEL = "google/gemini-2.5-flash-lite";
+const FULL_CONTEXT_INTERVAL = 3;
 const MAJOR_FLAG_PREFIXES = ["setback_", "lost_item_"];
 const DISCOVERY_BUCKETS = ["locations", "people", "factions", "routes", "threats", "facts"] as const;
 
@@ -240,6 +240,24 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
   };
 }
 
+function summarizeNarrationForState(narration?: string | null) {
+  if (!narration) return undefined;
+  const normalized = narration.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  return normalized.slice(0, 280);
+}
+
+function buildSceneState(story: StoryBootstrap["currentScene"], options?: { includeNarration?: boolean }) {
+  if (!story) return null;
+  return {
+    title: story.title,
+    narrationSummary: options?.includeNarration === false ? undefined : summarizeNarrationForState(story.narration),
+    suggestedChoices: story.suggestedChoices,
+    actionDraft: story.actionDraft,
+    updatedAt: story.updatedAt,
+  };
+}
+
 function buildFullNarratorStatePayload(story: StoryBootstrap) {
   return {
     run: {
@@ -267,13 +285,7 @@ function buildFullNarratorStatePayload(story: StoryBootstrap) {
       regions: story.world.regions,
       locations: story.world.locations,
     },
-    currentScene: story.currentScene
-      ? {
-          title: story.currentScene.title,
-          narration: story.currentScene.narration,
-          suggestedChoices: story.currentScene.suggestedChoices,
-        }
-      : null,
+    currentScene: buildSceneState(story.currentScene),
     inventory: story.inventory.map((item) => ({
       name: item.name,
       slug: item.slug,
@@ -324,60 +336,83 @@ function buildFullNarratorStatePayload(story: StoryBootstrap) {
 function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
   const magicalInventory = story.inventory.filter((item) => Boolean(item.metadata?.magical));
   const importantFlags = story.flags.filter((flag) => MAJOR_FLAG_PREFIXES.some((prefix) => flag.flagKey.startsWith(prefix)));
+  const likelyRelevantInventory = story.inventory.filter((item) => item.quantity > 0).slice(0, 10);
 
   return {
     run: {
+      id: story.run.id,
       name: story.run.name,
       status: story.run.status,
     },
     character: {
       name: story.character.name,
+      status: story.character.status,
       role: story.character.role,
       region: story.character.region,
+      kingdom: story.character.kingdom,
       bodyState: story.character.bodyState,
       mindState: story.character.mindState,
       conditions: story.character.conditions ?? [],
       notes: story.character.notes ?? [],
+      specializations: story.character.specializations ?? [],
     },
-    currentScene: story.currentScene
-      ? {
-          title: story.currentScene.title,
-          narration: story.currentScene.narration.slice(0, 900),
-          suggestedChoices: story.currentScene.suggestedChoices,
-        }
-      : null,
+    world: {
+      name: story.world.name,
+      tone: story.world.tone,
+      summary: story.world.summary,
+      regions: story.world.regions,
+      locations: story.world.locations,
+      notes: story.world.notes,
+    },
+    currentScene: buildSceneState(story.currentScene),
+    inventory: likelyRelevantInventory.map((item) => ({
+      name: item.name,
+      slug: item.slug,
+      itemType: item.itemType,
+      quantity: item.quantity,
+      equippedSlot: item.equippedSlot,
+      protected: Boolean(item.metadata?.protected),
+      magical: Boolean(item.metadata?.magical),
+    })),
     magicalInventory: magicalInventory.map((item) => ({
       name: item.name,
       itemType: item.itemType,
       equippedSlot: item.equippedSlot,
       abilities: (item.abilities ?? []).map((ability) => ({
         name: ability.name,
+        description: ability.description,
         cost: ability.cost,
         downside: ability.downside,
         tags: ability.tags,
       })),
     })),
-    teamMembers: story.teamMembers.slice(0, 6).map((member) => ({
+    teamMembers: story.teamMembers.slice(0, 10).map((member) => ({
+      personKey: member.personKey,
       name: member.name,
       role: member.role,
+      summary: member.summary,
       relationship: member.relationship,
       status: member.status,
       isCompanion: member.isCompanion,
       isActive: member.isActive,
+      notes: member.notes,
     })),
-    discoveries: story.discoveries.slice(0, 8).map((discovery) => ({
+    discoveries: story.discoveries.slice(0, 12).map((discovery) => ({
       discoveryType: discovery.discoveryType,
+      key: discovery.key,
       name: discovery.name,
       summary: discovery.summary,
+      details: discovery.details,
     })),
     flags: importantFlags.map((flag) => ({
       key: flag.flagKey,
       value: flag.flagValue,
     })),
-    recentEvents: story.recentEvents.slice(0, 5).map((event) => ({
+    recentEvents: story.recentEvents.slice(0, 8).map((event) => ({
       title: event.title,
       summary: event.summary,
       action: event.action,
+      createdAt: event.createdAt,
     })),
   };
 }
@@ -415,6 +450,9 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "Every turn must materially advance the situation. Each response must include at least one of the following: a new fact, a new threat, a changed situation, a concrete consequence, or a discovered person/place/object.",
     "The scene must end in a meaningfully different state than it began unless the concrete outcome is a failed action, capture, injury, loss, blocked path, or newly revealed constraint.",
     "If the player attempts something, resolve what happens next instead of stalling at the moment before outcome.",
+    "Treat each turn as a state transition, not a vignette. The output should leave the run in a concretely updated narrative position.",
+    "When in doubt, prefer consequence over suspense and changed circumstances over repeated framing.",
+    "If prior narration or scene summaries appear in the prompt, treat them as state reference only and do not echo their wording unless the situation genuinely still matches.",
     "Do not spend the whole response re-describing atmosphere, mood, weather, or scenery if the situation has not changed.",
     "Narration should prioritize motion, consequence, and decision pressure over decorative prose.",
     "Description is support material, not the main event. Keep sensory detail in service of action, consequence, or decision pressure.",
@@ -427,6 +465,8 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "- Keep each paragraph lean; avoid purple prose and repetitive ambience",
     "- Each turn must contain an outcome, reveal, complication, or irreversible commitment before the response ends",
     "- Resolve the player's attempted action into a concrete next state; do not freeze at the threshold of action",
+    "- Do not merely foreshadow an outcome, imply movement, or describe preparation; narrate what actually changed by the end of the turn",
+    "- If the action fails or is blocked, the failure/blockage itself must produce new information, pressure, cost, or repositioning",
     "- Suggested choices must be grounded in the current scene and actual available state",
     "- Suggested choices should be meaningfully distinct from each other, not three variations of the same move",
     "- At least one suggested choice should meaningfully escalate, commit, or risk something",
@@ -479,6 +519,7 @@ async function generateTurn(body: {
     previousNarration = story.currentScene?.narration,
   } = body;
 
+  const previousNarrationSummary = summarizeNarrationForState(previousNarration);
   const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode, promptMode });
   const apiKey = process.env.OPEN_ROUTER_API;
   if (!apiKey) {
@@ -496,7 +537,7 @@ async function generateTurn(body: {
     `Locked protagonist name: ${story.character.name || playerName || "Cade"}`,
     "Use that exact protagonist name in narration unless dialogue requires another character to say it aloud.",
     `Player action: ${action}`,
-    previousNarration ? `Previous narration: ${previousNarration}` : null,
+    previousNarrationSummary ? `Previous narration summary (state reference, do not echo): ${previousNarrationSummary}` : null,
     `Campaign summary: ${summaryText}`,
     "Canonical narrator state payload:",
     JSON.stringify(narratorState, null, 2),
