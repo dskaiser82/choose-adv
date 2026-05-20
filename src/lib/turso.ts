@@ -722,6 +722,7 @@ export async function ensureSchema() {
             suggested_choices_json text not null,
             character_patch_json text,
             world_patch_json text,
+            debug_payload_json text,
             created_at text not null,
             unique(run_id, turn_index)
           )
@@ -2091,7 +2092,7 @@ async function getNextTurnIndex(runId = DEFAULT_RUN_ID) {
   return Number(rowValue(rows(payload, 0)[0], 0) ?? 1);
 }
 
-export async function persistTurn(input: PersistTurnInput) {
+export async function persistTurn(input: PersistTurnInput & { debugPayload?: Record<string, unknown> | null }) {
   await seedStoryDataIfMissing();
   const runId = input.runId ?? DEFAULT_RUN_ID;
   const now = isoNow();
@@ -2166,7 +2167,7 @@ export async function persistTurn(input: PersistTurnInput) {
       stmt: {
         sql: `
           insert into run_turns (
-            id, run_id, turn_index, action, scene_title, narration, suggested_choices_json, character_patch_json, world_patch_json, created_at
+            id, run_id, turn_index, action, scene_title, narration, suggested_choices_json, character_patch_json, world_patch_json, debug_payload_json, created_at
           ) values (
             ${sqlString(crypto.randomUUID())},
             ${sqlString(runId)},
@@ -2177,6 +2178,7 @@ export async function persistTurn(input: PersistTurnInput) {
             ${sqlJson(input.suggestedChoices)},
             ${sqlNullableString(input.characterPatch ? JSON.stringify(input.characterPatch) : null)},
             ${sqlNullableString(input.worldPatch ? JSON.stringify(input.worldPatch) : null)},
+            ${sqlNullableString(input.debugPayload ? JSON.stringify(input.debugPayload) : null)},
             ${sqlString(now)}
           )
         `,
