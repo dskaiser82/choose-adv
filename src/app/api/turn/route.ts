@@ -240,6 +240,24 @@ function sanitizeTurnPayload(payload: Partial<TurnPayload>, fallback: TurnPayloa
   };
 }
 
+function summarizeNarrationForState(narration?: string | null) {
+  if (!narration) return undefined;
+  const normalized = narration.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  return normalized.slice(0, 280);
+}
+
+function buildSceneState(story: StoryBootstrap["currentScene"], options?: { includeNarration?: boolean }) {
+  if (!story) return null;
+  return {
+    title: story.title,
+    narrationSummary: options?.includeNarration === false ? undefined : summarizeNarrationForState(story.narration),
+    suggestedChoices: story.suggestedChoices,
+    actionDraft: story.actionDraft,
+    updatedAt: story.updatedAt,
+  };
+}
+
 function buildFullNarratorStatePayload(story: StoryBootstrap) {
   return {
     run: {
@@ -267,13 +285,7 @@ function buildFullNarratorStatePayload(story: StoryBootstrap) {
       regions: story.world.regions,
       locations: story.world.locations,
     },
-    currentScene: story.currentScene
-      ? {
-          title: story.currentScene.title,
-          narration: story.currentScene.narration,
-          suggestedChoices: story.currentScene.suggestedChoices,
-        }
-      : null,
+    currentScene: buildSceneState(story.currentScene),
     inventory: story.inventory.map((item) => ({
       name: item.name,
       slug: item.slug,
@@ -352,15 +364,7 @@ function buildDeltaNarratorStatePayload(story: StoryBootstrap) {
       locations: story.world.locations,
       notes: story.world.notes,
     },
-    currentScene: story.currentScene
-      ? {
-          title: story.currentScene.title,
-          narration: story.currentScene.narration,
-          suggestedChoices: story.currentScene.suggestedChoices,
-          actionDraft: story.currentScene.actionDraft,
-          updatedAt: story.currentScene.updatedAt,
-        }
-      : null,
+    currentScene: buildSceneState(story.currentScene),
     inventory: likelyRelevantInventory.map((item) => ({
       name: item.name,
       slug: item.slug,
@@ -448,6 +452,7 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
     "If the player attempts something, resolve what happens next instead of stalling at the moment before outcome.",
     "Treat each turn as a state transition, not a vignette. The output should leave the run in a concretely updated narrative position.",
     "When in doubt, prefer consequence over suspense and changed circumstances over repeated framing.",
+    "If prior narration or scene summaries appear in the prompt, treat them as state reference only and do not echo their wording unless the situation genuinely still matches.",
     "Do not spend the whole response re-describing atmosphere, mood, weather, or scenery if the situation has not changed.",
     "Narration should prioritize motion, consequence, and decision pressure over decorative prose.",
     "Description is support material, not the main event. Keep sensory detail in service of action, consequence, or decision pressure.",
@@ -514,6 +519,7 @@ async function generateTurn(body: {
     previousNarration = story.currentScene?.narration,
   } = body;
 
+  const previousNarrationSummary = summarizeNarrationForState(previousNarration);
   const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode, promptMode });
   const apiKey = process.env.OPEN_ROUTER_API;
   if (!apiKey) {
@@ -531,7 +537,7 @@ async function generateTurn(body: {
     `Locked protagonist name: ${story.character.name || playerName || "Cade"}`,
     "Use that exact protagonist name in narration unless dialogue requires another character to say it aloud.",
     `Player action: ${action}`,
-    previousNarration ? `Previous narration: ${previousNarration}` : null,
+    previousNarrationSummary ? `Previous narration summary (state reference, do not echo): ${previousNarrationSummary}` : null,
     `Campaign summary: ${summaryText}`,
     "Canonical narrator state payload:",
     JSON.stringify(narratorState, null, 2),
