@@ -498,6 +498,11 @@ function buildSystemPrompt(promptMode: "session_start" | "normal") {
   return common.join("\n");
 }
 
+type TurnGenerationResult = {
+  turn: TurnPayload;
+  debugPayload?: Record<string, unknown>;
+};
+
 async function generateTurn(body: {
   action?: string;
   playerName?: string;
@@ -523,7 +528,7 @@ async function generateTurn(body: {
   const fallback = buildFallbackTurn({ action, playerName, worldName, playerRegion, playerRole, contextMode, promptMode });
   const apiKey = process.env.OPEN_ROUTER_API;
   if (!apiKey) {
-    return fallback;
+    return { turn: fallback };
   }
 
   const narratorState = contextMode === "full"
@@ -566,10 +571,20 @@ async function generateTurn(body: {
 
     if (!response.ok) {
       return {
-        ...fallback,
-        debug: {
-          ...(fallback.debug ?? {}),
-          generator: "openclaw-openrouter-fallback",
+        turn: {
+          ...fallback,
+          debug: {
+            ...(fallback.debug ?? {}),
+            generator: "openclaw-openrouter-fallback",
+            openRouterStatus: response.status,
+          },
+        },
+        debugPayload: {
+          model: MODEL,
+          contextMode,
+          promptMode,
+          systemPrompt,
+          userPrompt,
           openRouterStatus: response.status,
         },
       };
@@ -578,20 +593,52 @@ async function generateTurn(body: {
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string") {
-      return fallback;
+      return {
+        turn: fallback,
+        debugPayload: {
+          model: MODEL,
+          contextMode,
+          promptMode,
+          systemPrompt,
+          userPrompt,
+          rawResponse: data,
+          parseState: "missing-content",
+        },
+      };
     }
 
     const parsed = JSON.parse(content) as Partial<TurnPayload>;
-    return sanitizeTurnPayload(parsed, fallback);
-  } catch {
-    return fallback;
+    return {
+      turn: sanitizeTurnPayload(parsed, fallback),
+      debugPayload: {
+        model: MODEL,
+        contextMode,
+        promptMode,
+        systemPrompt,
+        userPrompt,
+        rawResponse: data,
+        rawContent: content,
+      },
+    };
+  } catch (error) {
+    return {
+      turn: fallback,
+      debugPayload: {
+        model: MODEL,
+        contextMode,
+        promptMode,
+        systemPrompt,
+        userPrompt,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
 export async function POST(req: Request) {
   const body = await req.json();
   const story = await getStoryBootstrap();
-  const turn = await generateTurn(body ?? {}, story);
+  const { turn, debugPayload } = await generateTurn(body ?? {}, story);
 
   await persistTurn({
     action: typeof body?.action === "string" ? body.action : "",
@@ -600,6 +647,7 @@ export async function POST(req: Request) {
     suggestedChoices: turn.suggestedChoices,
     characterPatch: turn.characterUpdate,
     worldPatch: turn.worldUpdate,
+    debugPayload,
   });
 
   for (const discovery of flattenDiscoveries(turn.discoveries)) {
